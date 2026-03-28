@@ -4,6 +4,18 @@ import { spawn } from 'child_process';
 import os from 'os';
 import pty from 'node-pty';
 import crypto from 'crypto';
+import {
+  buildRemoteProjectSource,
+  buildRemoteSyncDownEntries,
+  buildRsyncCommand,
+  DEFAULT_PROJECT_SYNC_EXCLUDES,
+  DEFAULT_PROJECT_SYNC_DOWN_EXCLUDES,
+  DEFAULT_PROJECT_SYNC_RSYNC_FLAGS,
+  getRemoteProjectPath,
+  partitionRemoteSyncDownEntries,
+  shellEscape,
+  shellEscapeRemotePath,
+} from './utils/computeSync.js';
 
 const CONFIG_DIR = path.join(os.homedir(), '.openclaw');
 const CONFIG_FILE = path.join(CONFIG_DIR, 'compute-node.json');
@@ -218,13 +230,25 @@ async function execSsh(nodeConfig, remoteCmd) {
 }
 
 // Execute rsync on a specific node
-async function execRsync(nodeConfig, src, dst, excludes = '') {
+async function execRsync(nodeConfig, src, dst, excludes = '', optionFlags = []) {
   const port = nodeConfig.port || 22;
   const sshCmd = nodeConfig.keyPath
     ? `ssh -o StrictHostKeyChecking=no -p ${port} -i ${nodeConfig.keyPath}`
     : `ssh -o StrictHostKeyChecking=no -p ${port}`;
-
-  const cmd = `rsync -avz ${excludes} -e "${sshCmd}" ${src} ${dst}`;
+  const excludePatterns = Array.isArray(excludes)
+    ? excludes
+    : String(excludes || '')
+        .split(/\s+--exclude\s+/)
+        .map(pattern => pattern.trim())
+        .filter(Boolean)
+        .map(pattern => pattern.replace(/^--exclude\s+/, '').replace(/^['"]|['"]$/g, ''));
+  const cmd = buildRsyncCommand({
+    sshCmd,
+    sources: src,
+    destination: dst,
+    excludePatterns,
+    optionFlags,
+  });
 
   if (nodeConfig.keyPath) {
     return await execLocal(cmd);
@@ -237,6 +261,38 @@ async function execRsync(nodeConfig, src, dst, excludes = '') {
 
 function getProjectName(cwd) {
   return path.basename(cwd);
+}
+
+async function resolveExistingRemoteSyncDownEntries(nodeConfig, { user, host, remotePath, files = [] }) {
+  const entries = buildRemoteSyncDownEntries({ user, host, remotePath, files });
+  if (entries.length === 0) {
+    return { existingEntries: [], missingEntries: [] };
+  }
+
+  const probeCmd = entries.map(({ relativePath, remoteTargetPath }) => (
+    `if [ -e ${shellEscapeRemotePath(remoteTargetPath)} ]; then ` +
+    `printf 'FOUND\\t%s\\n' ${shellEscape(relativePath)}; ` +
+    `else printf 'MISSING\\t%s\\n' ${shellEscape(relativePath)}; fi`
+  )).join('; ');
+
+  const output = await execSsh(nodeConfig, probeCmd);
+  const existingRelativePaths = output
+    .split('\n')
+    .map(line => line.trim())
+    .filter(Boolean)
+    .map(line => line.split('\t'))
+    .filter(([status, relativePath]) => status === 'FOUND' && relativePath)
+    .map(([, relativePath]) => relativePath);
+
+  return partitionRemoteSyncDownEntries(entries, existingRelativePaths);
+}
+
+async function remotePathExists(nodeConfig, remotePath) {
+  const output = await execSsh(
+    nodeConfig,
+    `if [ -e ${shellEscapeRemotePath(remotePath)} ]; then printf 'FOUND'; else printf 'MISSING'; fi`
+  );
+  return output.trim() === 'FOUND';
 }
 
 // ─── Helper: resolve node config from optional nodeId ───
@@ -292,16 +348,56 @@ export const ComputeNode = {
     const config = await resolveNode(nodeId);
 
     const projectName = getProjectName(cwd);
-    const remoteBase = config.workDir.endsWith('/') ? config.workDir : config.workDir + '/';
-    const remotePath = `${remoteBase}${projectName}/`;
+    const remotePath = getRemoteProjectPath(config.workDir || '~', projectName);
 
     if (direction === 'up') {
-      await execSsh(config, `mkdir -p ${remotePath}`);
-      const excludes = "--exclude '.git' --exclude 'node_modules' --exclude '__pycache__' --exclude '*.pyc' --exclude '.DS_Store'";
-      return await execRsync(config, `${cwd}/`, `${config.user}@${config.host}:${remotePath}`, excludes);
+      await execSsh(config, `mkdir -p -- ${shellEscapeRemotePath(remotePath)}`);
+      return await execRsync(
+        config,
+        `${cwd}/`,
+        buildRemoteProjectSource({ user: config.user, host: config.host, remotePath }),
+        DEFAULT_PROJECT_SYNC_EXCLUDES,
+        DEFAULT_PROJECT_SYNC_RSYNC_FLAGS,
+      );
     } else {
-      const filesToSync = files.length > 0 ? files.join(' ') : 'logs/ checkpoints/ results/';
-      return await execRsync(config, `${config.user}@${config.host}:${remotePath}{${filesToSync}}`, `${cwd}/`);
+      const hasExplicitFiles = Array.isArray(files) && files.length > 0;
+      if (!hasExplicitFiles) {
+        const exists = await remotePathExists(config, remotePath);
+        if (!exists) {
+          return `Remote project directory not found: ${remotePath}`;
+        }
+        return await execRsync(
+          config,
+          buildRemoteProjectSource({ user: config.user, host: config.host, remotePath }),
+          `${cwd}/`,
+          DEFAULT_PROJECT_SYNC_DOWN_EXCLUDES,
+          DEFAULT_PROJECT_SYNC_RSYNC_FLAGS,
+        );
+      }
+
+      const { existingEntries, missingEntries } = await resolveExistingRemoteSyncDownEntries(config, {
+        user: config.user,
+        host: config.host,
+        remotePath,
+        files,
+      });
+
+      if (existingEntries.length === 0) {
+        const missingList = missingEntries.map(entry => entry.relativePath).join(', ');
+        throw new Error(`Remote files/directories not found: ${missingList}`);
+      }
+
+      const output = await execRsync(
+        config,
+        existingEntries.map(entry => entry.source),
+        `${cwd}/`,
+        DEFAULT_PROJECT_SYNC_DOWN_EXCLUDES,
+        DEFAULT_PROJECT_SYNC_RSYNC_FLAGS,
+      );
+      if (missingEntries.length === 0) return output;
+
+      const skippedMessage = `Skipped missing remote paths: ${missingEntries.map(entry => entry.relativePath).join(', ')}`;
+      return output ? `${output}\n${skippedMessage}` : skippedMessage;
     }
   },
 
@@ -311,11 +407,10 @@ export const ComputeNode = {
 
     if (cwd && !skipSync) {
       const projectName = getProjectName(cwd);
-      const remoteBase = config.workDir.endsWith('/') ? config.workDir : config.workDir + '/';
-      const remotePath = `${remoteBase}${projectName}/`;
+      const remotePath = getRemoteProjectPath(config.workDir || '~', projectName);
 
       await this.sync({ nodeId: config.id, direction: 'up', cwd });
-      return await execSsh(config, `cd ${remotePath} && ${command}`);
+      return await execSsh(config, `cd -- ${shellEscapeRemotePath(remotePath)} && ${command}`);
     } else {
       return await execSsh(config, command);
     }

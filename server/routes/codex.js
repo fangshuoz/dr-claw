@@ -5,6 +5,7 @@ import path from 'path';
 import os from 'os';
 import TOML from '@iarna/toml';
 import { getCodexSessions, getCodexSessionMessages, deleteCodexSession } from '../projects.js';
+import { resolveCodexCliCommand } from '../utils/codexCommand.js';
 
 const router = express.Router();
 
@@ -17,6 +18,10 @@ function createCliResponder(res) {
     responded = true;
     res.status(status).json(payload);
   };
+}
+
+async function getResolvedCodexCliCommand() {
+  return (await resolveCodexCliCommand()) || 'codex';
 }
 
 router.get('/config', async (req, res) => {
@@ -100,7 +105,8 @@ router.delete('/sessions/:sessionId', async (req, res) => {
 router.get('/mcp/cli/list', async (req, res) => {
   try {
     const respond = createCliResponder(res);
-    const proc = spawn('codex', ['mcp', 'list'], { stdio: ['pipe', 'pipe', 'pipe'] });
+    const cliCommand = await getResolvedCodexCliCommand();
+    const proc = spawn(cliCommand, ['mcp', 'list'], { stdio: ['pipe', 'pipe', 'pipe'] });
 
     let stdout = '';
     let stderr = '';
@@ -151,7 +157,8 @@ router.post('/mcp/cli/add', async (req, res) => {
     }
 
     const respond = createCliResponder(res);
-    const proc = spawn('codex', cliArgs, { stdio: ['pipe', 'pipe', 'pipe'] });
+    const cliCommand = await getResolvedCodexCliCommand();
+    const proc = spawn(cliCommand, cliArgs, { stdio: ['pipe', 'pipe', 'pipe'] });
 
     let stdout = '';
     let stderr = '';
@@ -185,7 +192,8 @@ router.delete('/mcp/cli/remove/:name', async (req, res) => {
     const { name } = req.params;
 
     const respond = createCliResponder(res);
-    const proc = spawn('codex', ['mcp', 'remove', name], { stdio: ['pipe', 'pipe', 'pipe'] });
+    const cliCommand = await getResolvedCodexCliCommand();
+    const proc = spawn(cliCommand, ['mcp', 'remove', name], { stdio: ['pipe', 'pipe', 'pipe'] });
 
     let stdout = '';
     let stderr = '';
@@ -219,7 +227,8 @@ router.get('/mcp/cli/get/:name', async (req, res) => {
     const { name } = req.params;
 
     const respond = createCliResponder(res);
-    const proc = spawn('codex', ['mcp', 'get', name], { stdio: ['pipe', 'pipe', 'pipe'] });
+    const cliCommand = await getResolvedCodexCliCommand();
+    const proc = spawn(cliCommand, ['mcp', 'get', name], { stdio: ['pipe', 'pipe', 'pipe'] });
 
     let stdout = '';
     let stderr = '';

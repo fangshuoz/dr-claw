@@ -869,6 +869,21 @@ export function useChatRealtimeHandlers({
         }
 
         setIsLoading(true);
+        if (codexData.type === 'error') {
+          const codexErrorMessage =
+            typeof codexData.message === 'string' ? codexData.message.trim() : '';
+
+          if (codexErrorMessage) {
+            setClaudeStatus((prev) => ({
+              text: codexErrorMessage,
+              tokens: prev?.tokens || 0,
+              can_interrupt: prev?.can_interrupt !== undefined ? prev.can_interrupt : true,
+              startTime: Number.isFinite(codexData.startTime) ? codexData.startTime : prev?.startTime,
+            }));
+          }
+          break;
+        }
+
         if (codexData.type === 'item') {
           const itemId = codexData.itemId;
           const lifecycle = codexData.lifecycle; // 'started' | 'completed' | 'other'

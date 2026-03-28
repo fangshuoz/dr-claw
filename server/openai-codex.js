@@ -21,9 +21,11 @@ import { sessionDb } from './database/db.js';
 import { applyStageTagsToSession, recordIndexedSession } from './utils/sessionIndex.js';
 import { classifyError, classifySDKError } from '../shared/errorClassifier.js';
 import { buildTempAttachmentFilename } from './utils/imageAttachmentFiles.js';
+import { resolveCodexCliCommand } from './utils/codexCommand.js';
 
 // Track active sessions
 const activeCodexSessions = new Map();
+let hasLoggedCodexCliSource = false;
 
 /**
  * Check if an agent_message item contains system prompt / instruction content
@@ -367,8 +369,28 @@ export async function queryCodex(command, options = {}, ws) {
       });
     }
 
+    const codexCliCommand = await resolveCodexCliCommand();
+    const codexOptions = {};
+
+    if (env) {
+      codexOptions.env = env;
+    }
+
+    if (codexCliCommand) {
+      codexOptions.codexPathOverride = codexCliCommand;
+    }
+
+    if (!hasLoggedCodexCliSource) {
+      console.log(
+        codexCliCommand
+          ? `[Codex] Using system CLI: ${codexCliCommand}`
+          : '[Codex] Using bundled SDK CLI',
+      );
+      hasLoggedCodexCliSource = true;
+    }
+
     // Initialize Codex SDK
-    codex = new Codex(env ? { env } : undefined);
+    codex = new Codex(Object.keys(codexOptions).length > 0 ? codexOptions : undefined);
 
     // Thread options with sandbox and approval settings
     const threadOptions = {
@@ -452,6 +474,8 @@ export async function queryCodex(command, options = {}, ws) {
           const outPreview = event.item.aggregated_output?.substring(0, 120) || '(empty)';
           console.log(`[Codex]   cmd output (${outLen} chars): "${outPreview}"`);
         }
+      } else if (event.type === 'error') {
+        console.warn(`[Codex] Stream error: ${event.message}`);
       } else {
         console.log(`[Codex] ${event.type}`);
       }
