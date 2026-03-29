@@ -35,6 +35,7 @@
 - [亮点](#亮点)
 - [快速开始](#快速开始)
 - [配置说明](#配置说明)
+- [OpenRouter](#openrouter)
 - [接入 OpenClaw](#接入-openclaw)
 - [Research Lab - 快速示例](#research-lab-quick-example)
 - [使用指南](#使用指南)
@@ -53,7 +54,7 @@ Dr. Claw 是一个面向不同研究方向的通用 AI 研究助手，帮助研�
 <strong>产品截图</strong>
 
 <p align="center">
-  <img src="public/screenshots/chat.png" alt="Dr. Claw 对话界面" width="1000">
+  <img src="public/screenshots/new_claw.png" alt="Dr. Claw 对话界面" width="1000">
 </p>
 
 
@@ -74,7 +75,7 @@ Dr. Claw 是一个面向不同研究方向的通用 AI 研究助手，帮助研�
 - **⚡ Auto Research** — 可直接从 Project Dashboard 一键顺序执行研究任务，实时打开对应 session，并在运行完成后发送邮件通知
 - **📚 100+ Research Skills** — 覆盖 Idea 生成、代码调研、实验开发与分析、论文写作、审阅回复与交付的技能库 — Agent 自动发现并作为任务级辅助
 - **🗂️ 对话驱动的 Pipeline** — 在 Chat 中描述你的研究想法，Agent 使用 `inno-pipeline-planner` skill 交互式生成结构化研究简报和任务列表 — 无需手动选择模板
-- **🤖 多 Agent 后端** — 可在 Claude Code、Gemini CLI 和 Codex 之间切换作为执行引擎
+- **🤖 多 Agent 后端** — 可在 Claude Code、Gemini CLI、Codex 和 OpenRouter 之间切换作为执行引擎
 
 ### 流水线产出物
 
@@ -131,6 +132,7 @@ Dr. Claw 是一个面向不同研究方向的通用 AI 研究助手，帮助研�
   - [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code)
   - [Gemini CLI](https://geminicli.com/docs/get-started/installation/)
   - [Codex CLI](https://developers.openai.com/codex/cli/)
+- 国内用户可以配置 [OpenRouter](#openrouter)
 - 部分系统需要原生构建工具来安装 `node-pty`、`better-sqlite3` 等依赖；如果 `npm install` 失败，请查看 [FAQ](docs/faq.zh-CN.md)。
 
 Cursor Agent 支持正在开发中，即将推出。
@@ -195,6 +197,9 @@ drclaw auth login --username 你的用户名 --password 你的密码
 | Claude Code | `npm install -g @anthropic-ai/claude-code` | `claude` → 按提示完成 OAuth |
 | Gemini CLI | `npm install -g @google/gemini-cli` | `gemini` → Google 登录，或 `export GOOGLE_API_KEY=...` |
 | Codex CLI | `npm install -g @openai/codex` | `codex login`，或 `export OPENAI_API_KEY=...` |
+| **OpenRouter** | 无需安装 CLI | `export OPENROUTER_API_KEY=sk-or-...`（在 [openrouter.ai/keys](https://openrouter.ai/keys) 获取密钥）|
+
+> **OpenRouter** 允许你通过单个 API 密钥使用*任意*模型（GPT-5、Claude、Gemini、DeepSeek、Llama、Mistral、Qwen 等）。在 UI 中选择模型或在 `.env` 中设置 `OPENROUTER_MODEL`。
 
 进入你要工作的项目目录，启动任一 Agent：
 
@@ -208,6 +213,33 @@ claude    # 或: gemini | codex
 ```
 > Read .claude/skills/inno-experiment-analysis/SKILL.md and follow it to analyze my results.
 ```
+
+#### 方式 C：OpenRouter 终端对话
+
+如果你想要一种轻量级的纯终端体验，使用任意 [OpenRouter](https://openrouter.ai/) 模型，可以使用内置的 `dr-claw chat` 命令。无需浏览器或 UI — 直接在终端中进行具备完整工具调用能力（文件读写、Shell、Grep、Glob、网页搜索/抓取）的智能体对话。
+
+```bash
+# 确保已设置 OPENROUTER_API_KEY（或使用 --key 传入）
+export OPENROUTER_API_KEY=sk-or-...
+
+# 使用任意模型启动对话
+node server/cli.js chat --model moonshotai/kimi-k2.5
+```
+
+也可以直接传入 API 密钥：
+
+```bash
+node server/cli.js chat --model anthropic/claude-sonnet-4 --key sk-or-your-key
+```
+
+| 参数 | 说明 |
+|------|------|
+| `--model <slug>` | OpenRouter 模型标识（如 `moonshotai/kimi-k2.5`、`anthropic/claude-sonnet-4`、`deepseek/deepseek-r1`）|
+| `--key <key>` | OpenRouter API 密钥（默认使用 `OPENROUTER_API_KEY` 环境变量）|
+
+浏览所有可用模型：[openrouter.ai/models](https://openrouter.ai/models)。
+
+
 
 如果后续 Agent 网页搜索不可用，请查看[网页搜索排障](#troubleshooting-web-search-zh)。
 
@@ -471,7 +503,52 @@ Dr. Claw 会从 `.env` 读取本地配置。对大多数用户来说，只需要
 
 完整环境变量说明和部署注意事项见 [docs/configuration.zh-CN.md](docs/configuration.zh-CN.md)。
 
-Auto Research 的邮件通知配置在应用内的 **Settings → Email**。当前 v1 支持 Claude Code、Codex、Gemini 作为执行引擎进行无人值守研究任务执行；如果运行中断，系统会自动回收僵尸 run，避免其长期停留在 `running` 状态。
+Auto Research 的邮件通知配置在应用内的 **Settings → Email**。当前 v1 支持 Claude Code、Codex、Gemini 和 OpenRouter 作为执行引擎进行无人值守研究任务执行；如果运行中断，系统会自动回收僵尸 run，避免其长期停留在 `running` 状态。
+
+## OpenRouter
+
+[OpenRouter](https://openrouter.ai/) 作为一等公民集成，让你通过**一个 API 密钥**访问数百个模型（GPT-5、Claude、Gemini、DeepSeek、Llama、Mistral、Qwen、Kimi 等）。
+
+### 配置
+
+1. 在 [openrouter.ai/keys](https://openrouter.ai/keys) 获取 API 密钥。
+2. 通过以下三种方式之一设置密钥：
+   - **环境变量：** `export OPENROUTER_API_KEY=sk-or-...`
+   - **`.env` 文件：** 在项目 `.env` 中添加 `OPENROUTER_API_KEY=sk-or-...`
+   - **UI 界面：** 进入 **Settings → OpenRouter** 并粘贴密钥
+
+### 在 UI 中使用 OpenRouter
+
+1. 打开项目并进入 **Chat**。
+2. 在 **Choose Your AI Assistant** 下点击 **OpenRouter**。
+3. 在下拉菜单中搜索模型（会从 OpenRouter 获取完整列表），或输入自定义模型标识。
+4. 开始对话 — Agent 具备与 Claude、Gemini、Codex 相同的工具调用能力（文件读写、Shell、Grep、Glob、网页搜索/抓取、Todo）。
+
+OpenRouter 同样可用于 Project Dashboard 上的 **Auto Research** — 选择它作为提供方并选择任意模型。
+
+### 在终端中使用 OpenRouter
+
+无需浏览器。`dr-claw chat` CLI 提供完整的智能体终端会话：
+
+```bash
+# 基本用法
+node server/cli.js chat --model moonshotai/kimi-k2.5
+
+# 指定 API 密钥
+node server/cli.js chat --model deepseek/deepseek-r1 --key sk-or-your-key
+```
+
+CLI 支持与 UI 相同的工具（文件读写、Shell、Grep、Glob、网页搜索、网页抓取、Todo）。输入你的消息，Agent 将自主执行多步骤研究任务。
+
+### 默认模型
+
+在 `.env` 中设置 `OPENROUTER_MODEL` 以更改未指定模型时的默认值：
+
+```env
+OPENROUTER_MODEL=moonshotai/kimi-k2.5
+```
+
+如未设置，默认使用 `anthropic/claude-sonnet-4`。
 
 <a id="research-lab-quick-example"></a>
 
@@ -670,7 +747,7 @@ Dr. Claw 完全响应式设计。在移动设备上：
 #### 后端 (Node.js + Express)
 - **Express 服务器** - 具有静态文件服务的 RESTful API
 - **WebSocket 服务器** - 用于聊天和项目刷新的通信
-- **Agent 集成 (Claude Code、Gemini CLI、Codex)** - 负责进程拉起、流式输出与会话管理
+- **Agent 集成 (Claude Code、Gemini CLI、Codex、OpenRouter)** - 负责进程拉起、流式输出与会话管理
 - **文件系统 API** - 为项目公开文件浏览器
 
 #### 前端 (React + Vite)
