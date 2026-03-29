@@ -1115,6 +1115,76 @@ async function reconcileCodexSessionIndex(projectPath, options = {}) {
   return sessions;
 }
 
+function buildSessionsByProjectMap(indexedSessions = []) {
+  const sessionsByProject = new Map();
+
+  for (const session of indexedSessions) {
+    if (!sessionsByProject.has(session.project_name)) {
+      sessionsByProject.set(session.project_name, []);
+    }
+    sessionsByProject.get(session.project_name).push(session);
+  }
+
+  return sessionsByProject;
+}
+
+async function backfillMissingProjectSessions(visibleProjects, sessionsByProject) {
+  if (!Array.isArray(visibleProjects) || visibleProjects.length === 0) {
+    return false;
+  }
+
+  const codexIndexRef = {};
+  const geminiIndexRef = {};
+  let attemptedBackfill = false;
+
+  await mapWithConcurrency(visibleProjects, 4, async ({ entry, actualProjectDir }) => {
+    const indexedProviders = new Set(
+      (sessionsByProject.get(entry.name) || []).map((session) => session.provider)
+    );
+    const recoveryTasks = [];
+
+    if (!indexedProviders.has('claude')) {
+      attemptedBackfill = true;
+      recoveryTasks.push(getSessions(entry.name, 0, 0));
+    }
+
+    if (actualProjectDir && !indexedProviders.has('cursor')) {
+      attemptedBackfill = true;
+      recoveryTasks.push(getCursorSessions(actualProjectDir, {
+        limit: 0,
+        projectName: entry.name,
+        syncIndex: true,
+      }));
+    }
+
+    if (actualProjectDir && !indexedProviders.has('codex')) {
+      attemptedBackfill = true;
+      recoveryTasks.push(getCodexSessions(actualProjectDir, {
+        limit: 0,
+        projectName: entry.name,
+        syncIndex: true,
+        indexRef: codexIndexRef,
+      }));
+    }
+
+    if (actualProjectDir && !indexedProviders.has('gemini')) {
+      attemptedBackfill = true;
+      recoveryTasks.push(getGeminiSessions(actualProjectDir, {
+        limit: 0,
+        projectName: entry.name,
+        syncIndex: true,
+        indexRef: geminiIndexRef,
+      }));
+    }
+
+    if (recoveryTasks.length > 0) {
+      await Promise.allSettled(recoveryTasks);
+    }
+  });
+
+  return attemptedBackfill;
+}
+
 async function getProjects(userId, progressCallback = null) {
   const { projectDb, sessionDb } = await import('./database/db.js');
   const config = await loadProjectConfig();
@@ -1166,14 +1236,13 @@ async function getProjects(userId, progressCallback = null) {
     }
 
     const projectNames = visibleProjects.map(({ entry }) => entry.name);
-    const indexedSessions = sessionDb.getSessionsByProjects(projectNames);
-    const sessionsByProject = new Map();
+    let indexedSessions = sessionDb.getSessionsByProjects(projectNames);
+    let sessionsByProject = buildSessionsByProjectMap(indexedSessions);
 
-    for (const session of indexedSessions) {
-      if (!sessionsByProject.has(session.project_name)) {
-        sessionsByProject.set(session.project_name, []);
-      }
-      sessionsByProject.get(session.project_name).push(session);
+    const attemptedBackfill = await backfillMissingProjectSessions(visibleProjects, sessionsByProject);
+    if (attemptedBackfill) {
+      indexedSessions = sessionDb.getSessionsByProjects(projectNames);
+      sessionsByProject = buildSessionsByProjectMap(indexedSessions);
     }
 
     totalProjects = visibleProjects.length;
@@ -2751,7 +2820,7 @@ async function addProjectManually(projectPath, displayName = null, userId = null
 async function getCursorSessions(projectPath, options = {}) {
   try {
     const { sessionDb } = await import('./database/db.js');
-    const { limit = 5, projectName = encodeProjectPath(projectPath) } = options;
+    const { limit = 5, projectName = encodeProjectPath(projectPath), syncIndex = false } = options;
     const candidatePaths = [projectPath];
     const legacyProjectPath = remapCurrentProjectPathToLegacy(projectPath);
     const legacyProjectName = legacyProjectPath ? encodeProjectPath(legacyProjectPath) : null;
@@ -2862,8 +2931,20 @@ async function getCursorSessions(projectPath, options = {}) {
       }
     }
 
+    if (syncIndex) {
+      await Promise.allSettled(
+        sessions.map(async (session) => {
+          const indexedSession = sessionDb.getSessionById(session.id);
+          await reconcileIndexedSessionFromSource(projectName, 'cursor', {
+            ...session,
+            summary: session.name,
+          }, indexedSession, projectPath);
+        })
+      );
+    }
+
     sessions.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-    return sessions.slice(0, limit);
+    return limit > 0 ? sessions.slice(0, limit) : sessions;
   } catch (error) {
     console.error('Error fetching Cursor sessions:', error);
     return [];
