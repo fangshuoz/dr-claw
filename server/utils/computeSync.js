@@ -1,5 +1,5 @@
-export const DEFAULT_PROJECT_SYNC_EXCLUDES = ['.git', 'node_modules', '__pycache__', '*.pyc', '.DS_Store'];
-export const DEFAULT_PROJECT_SYNC_DOWN_EXCLUDES = [...DEFAULT_PROJECT_SYNC_EXCLUDES, '.venvs', '.gitignore'];
+export const DEFAULT_PROJECT_SYNC_EXCLUDES = ['.git', 'node_modules', '__pycache__', '*.pyc', '.DS_Store', '.venvs'];
+export const DEFAULT_PROJECT_SYNC_DOWN_EXCLUDES = [...DEFAULT_PROJECT_SYNC_EXCLUDES, '.gitignore'];
 export const DEFAULT_PROJECT_SYNC_RSYNC_FLAGS = ['--update'];
 
 export function shellEscape(value) {

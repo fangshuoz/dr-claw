@@ -21,7 +21,7 @@ describe('compute sync helpers', () => {
   });
 
   it('uses the shared project excludes for full sync in both directions', () => {
-    expect(DEFAULT_PROJECT_SYNC_EXCLUDES).toEqual(['.git', 'node_modules', '__pycache__', '*.pyc', '.DS_Store']);
+    expect(DEFAULT_PROJECT_SYNC_EXCLUDES).toEqual(['.git', 'node_modules', '__pycache__', '*.pyc', '.DS_Store', '.venvs']);
   });
 
   it('adds extra excludes for sync down', () => {

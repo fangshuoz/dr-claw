@@ -57,6 +57,7 @@ const useWebSocketProviderState = (): WebSocketContextType => {
   }, []);
 
   useEffect(() => {
+    unmountedRef.current = false;
     connect();
     
     return () => {
@@ -76,6 +77,11 @@ const useWebSocketProviderState = (): WebSocketContextType => {
   const connect = useCallback(() => {
     if (unmountedRef.current) return;
     try {
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
+      }
+
       const wsUrl = buildWebSocketUrl(token);
 
       if (!wsUrl) return console.warn('No authentication token found for WebSocket connection');
