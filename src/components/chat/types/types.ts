@@ -109,6 +109,14 @@ export interface PendingPermissionRequest {
   receivedAt?: Date;
 }
 
+export interface TokenBudget {
+  used?: number | null;
+  total?: number | null;
+  unsupportedContext?: boolean;
+  message?: string;
+  lifetimeTokens?: number;
+}
+
 export interface QuestionOption {
   label: string;
   description?: string;

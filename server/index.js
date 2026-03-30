@@ -84,6 +84,7 @@ import {
     parsePortNumber,
     setRuntimePortSync,
 } from './utils/runtimePorts.js';
+import { buildCodexTokenUsageFromJsonl } from './utils/sessionTokenUsage.js';
 
 // File system watchers for provider project/session folders
 const PROVIDER_WATCH_PATHS = [
@@ -840,6 +841,45 @@ app.put('/api/projects/:projectName/sessions/:sessionId/tags', authenticateToken
             source: 'manual',
         });
         res.json({ success: true, tags });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.get('/api/projects/:projectName/sessions/:sessionId/context-review', authenticateToken, async (req, res) => {
+    try {
+        const { projectName, sessionId } = req.params;
+        const session = sessionDb.getSessionById(sessionId);
+
+        if (!session || session.project_name !== projectName) {
+            return res.status(404).json({ error: 'Session not found' });
+        }
+
+        res.json({
+            sessionId,
+            projectName,
+            reviews: sessionDb.getSessionContextReview(sessionId),
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.put('/api/projects/:projectName/sessions/:sessionId/context-review', authenticateToken, async (req, res) => {
+    try {
+        const { projectName, sessionId } = req.params;
+        const { reviews } = req.body || {};
+        const session = sessionDb.getSessionById(sessionId);
+
+        if (!session || session.project_name !== projectName) {
+            return res.status(404).json({ error: 'Session not found' });
+        }
+
+        res.json({
+            sessionId,
+            projectName,
+            reviews: sessionDb.updateSessionContextReview(sessionId, reviews),
+        });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -2614,36 +2654,7 @@ app.get('/api/projects/:projectName/sessions/:sessionId/token-usage', authentica
         }
         throw error;
       }
-      const lines = fileContent.trim().split('\n');
-      let totalTokens = 0;
-      let contextWindow = 200000; // Default for Codex/OpenAI
-
-      // Find the latest token_count event with info (scan from end)
-      for (let i = lines.length - 1; i >= 0; i--) {
-        try {
-          const entry = JSON.parse(lines[i]);
-
-          // Codex stores token info in event_msg with type: "token_count"
-          if (entry.type === 'event_msg' && entry.payload?.type === 'token_count' && entry.payload?.info) {
-            const tokenInfo = entry.payload.info;
-            if (tokenInfo.total_token_usage) {
-              totalTokens = tokenInfo.total_token_usage.total_tokens || 0;
-            }
-            if (tokenInfo.model_context_window) {
-              contextWindow = tokenInfo.model_context_window;
-            }
-            break; // Stop after finding the latest token count
-          }
-        } catch (parseError) {
-          // Skip lines that can't be parsed
-          continue;
-        }
-      }
-
-      return res.json({
-        used: totalTokens,
-        total: contextWindow
-      });
+      return res.json(buildCodexTokenUsageFromJsonl(fileContent));
     }
 
     // Handle Gemini sessions

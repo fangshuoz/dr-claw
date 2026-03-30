@@ -20,7 +20,7 @@ import type {
   SetStateAction,
   TouchEvent,
 } from 'react';
-import type { AttachedPrompt, PendingPermissionRequest, PermissionMode, Provider } from '../../types/types';
+import type { AttachedPrompt, PendingPermissionRequest, PermissionMode, Provider, TokenBudget } from '../../types/types';
 
 interface MentionableFile {
   name: string;
@@ -56,7 +56,7 @@ interface ChatComposerProps {
   onModeSwitch: () => void;
   thinkingMode: string;
   setThinkingMode: Dispatch<SetStateAction<string>>;
-  tokenBudget: { used?: number; total?: number } | null;
+  tokenBudget: TokenBudget | null;
   slashCommandsCount: number;
   onToggleCommandMenu: () => void;
   hasInput: boolean;

@@ -3,7 +3,7 @@ import type { MutableRefObject } from 'react';
 
 import { api, authenticatedFetch } from '../../../utils/api';
 import { RESUMING_STATUS_TEXT } from '../types/types';
-import type { ChatMessage, Provider } from '../types/types';
+import type { ChatMessage, Provider, TokenBudget } from '../types/types';
 import type { Project, ProjectSession } from '../../../types/app';
 import { clearSessionTimerStart, readSessionTimerStart, safeLocalStorage } from '../utils/chatStorage';
 import {
@@ -103,7 +103,7 @@ export function useChatSessionState({
   const [isSystemSessionChange, setIsSystemSessionChange] = useState(false);
   const [canAbortSession, setCanAbortSession] = useState(false);
   const [isUserScrolledUp, setIsUserScrolledUp] = useState(false);
-  const [tokenBudget, setTokenBudget] = useState<Record<string, unknown> | null>(null);
+  const [tokenBudget, setTokenBudget] = useState<TokenBudget | null>(null);
   const [visibleMessageCount, setVisibleMessageCount] = useState(INITIAL_VISIBLE_MESSAGES);
   const [claudeStatus, setClaudeStatus] = useState<{ text: string; tokens: number; can_interrupt: boolean; startTime?: number } | null>(() => {
     if (!persistedInitialStartTime) {
@@ -572,17 +572,18 @@ export function useChatSessionState({
     }
 
     const sessionProvider = selectedSession.__provider || 'claude';
-    if (sessionProvider !== 'claude') {
+    if (sessionProvider === 'cursor') {
+      setTokenBudget(null);
       return;
     }
 
     const fetchInitialTokenUsage = async () => {
       try {
-        const url = `/api/projects/${selectedProject.name}/sessions/${selectedSession.id}/token-usage`;
+        const url = `/api/projects/${selectedProject.name}/sessions/${selectedSession.id}/token-usage?provider=${encodeURIComponent(sessionProvider)}`;
         const response = await authenticatedFetch(url);
         if (response.ok) {
           const data = await response.json();
-          setTokenBudget(data);
+          setTokenBudget(data as TokenBudget);
         } else {
           setTokenBudget(null);
         }

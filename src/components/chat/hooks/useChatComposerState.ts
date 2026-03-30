@@ -28,6 +28,7 @@ import type {
   ChatMessage,
   PendingPermissionRequest,
   PermissionMode,
+  TokenBudget,
 } from '../types/types';
 import { useFileMentions } from './useFileMentions';
 import { type SlashCommand, useSlashCommands } from './useSlashCommands';
@@ -54,7 +55,7 @@ interface UseChatComposerStateArgs {
   openrouterModel: string;
   isLoading: boolean;
   canAbortSession: boolean;
-  tokenBudget: Record<string, unknown> | null;
+  tokenBudget: TokenBudget | null;
   sendMessage: (message: unknown) => void;
   sendByCtrlEnter?: boolean;
   onSessionActive?: (sessionId?: string | null) => void;
