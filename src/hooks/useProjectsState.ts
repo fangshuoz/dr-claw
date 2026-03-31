@@ -102,7 +102,8 @@ const projectsHaveChanges = (
       serialize(nextProject.cursorSessions) !== serialize(prevProject.cursorSessions) ||
       serialize(nextProject.codexSessions) !== serialize(prevProject.codexSessions) ||
       serialize(nextProject.geminiSessions) !== serialize(prevProject.geminiSessions) ||
-      serialize(nextProject.openrouterSessions) !== serialize(prevProject.openrouterSessions)
+      serialize(nextProject.openrouterSessions) !== serialize(prevProject.openrouterSessions) ||
+      serialize(nextProject.localSessions) !== serialize(prevProject.localSessions)
     );
   });
 };
@@ -114,6 +115,7 @@ const getProjectSessions = (project: Project): ProjectSession[] => {
     ...(project.cursorSessions ?? []),
     ...(project.geminiSessions ?? []),
     ...(project.openrouterSessions ?? []),
+    ...(project.localSessions ?? []),
   ];
 };
 
@@ -175,13 +177,15 @@ const applySessionTagsToProject = (
   const nextCodexSessions = applySessionTagsToList(project.codexSessions, detail, 'codex');
   const nextGeminiSessions = applySessionTagsToList(project.geminiSessions, detail, 'gemini');
   const nextOpenrouterSessions = applySessionTagsToList(project.openrouterSessions, detail, 'openrouter');
+  const nextLocalSessions = applySessionTagsToList(project.localSessions, detail, 'local');
 
   if (
     nextClaudeSessions === project.sessions &&
     nextCursorSessions === project.cursorSessions &&
     nextCodexSessions === project.codexSessions &&
     nextGeminiSessions === project.geminiSessions &&
-    nextOpenrouterSessions === project.openrouterSessions
+    nextOpenrouterSessions === project.openrouterSessions &&
+    nextLocalSessions === project.localSessions
   ) {
     return project;
   }
@@ -193,6 +197,7 @@ const applySessionTagsToProject = (
     codexSessions: nextCodexSessions,
     geminiSessions: nextGeminiSessions,
     openrouterSessions: nextOpenrouterSessions,
+    localSessions: nextLocalSessions,
   };
 };
 
@@ -436,6 +441,7 @@ export function useProjectsState({
           codexSessions: updateSessionList(project.codexSessions, 'codex'),
           geminiSessions: updateSessionList(project.geminiSessions, 'gemini'),
           openrouterSessions: updateSessionList(project.openrouterSessions, 'openrouter'),
+          localSessions: updateSessionList(project.localSessions, 'local'),
         };
 
         if (createdProjectName && project.name === createdProjectName && createdProvider) {
@@ -444,16 +450,18 @@ export function useProjectsState({
             : createdProvider === 'codex' ? 'codexSessions'
             : createdProvider === 'gemini' ? 'geminiSessions'
             : createdProvider === 'openrouter' ? 'openrouterSessions'
+            : createdProvider === 'local' ? 'localSessions'
             : null;
 
           if (sessionArrayKey) {
             const arr = (nextProject[sessionArrayKey] as ProjectSession[] | undefined) || [];
             const alreadyExists = arr.some((s) => s.id === latestMessage.sessionId);
             if (!alreadyExists) {
+              const fallbackName = createdProvider === 'local' ? 'Local GPU Session' : 'New Session';
               const newSession: ProjectSession = {
                 id: latestMessage.sessionId as string,
-                name: createdDisplayName || 'OpenRouter Session',
-                summary: createdDisplayName || 'OpenRouter Session',
+                name: createdDisplayName || fallbackName,
+                summary: createdDisplayName || fallbackName,
                 mode: sessionMode,
                 __provider: createdProvider,
                 __projectName: project.name,
@@ -647,6 +655,13 @@ export function useProjectsState({
       if (openrouterSession) {
         matchedProject = project;
         matchedSession = { ...openrouterSession, __provider: 'openrouter' };
+        break;
+      }
+
+      const localSession = project.localSessions?.find((session) => session.id === targetSessionId);
+      if (localSession) {
+        matchedProject = project;
+        matchedSession = { ...localSession, __provider: 'local' };
         break;
       }
     }
@@ -865,6 +880,7 @@ export function useProjectsState({
           codexSessions: filterOut(project.codexSessions),
           geminiSessions: filterOut(project.geminiSessions),
           openrouterSessions: filterOut(project.openrouterSessions),
+          localSessions: filterOut(project.localSessions),
           sessionMeta: {
             ...project.sessionMeta,
             total: Math.max(0, (project.sessionMeta?.total as number | undefined ?? 0) - 1),

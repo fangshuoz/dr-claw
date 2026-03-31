@@ -1098,6 +1098,45 @@ async function reconcileOpenRouterSessionIndex(projectPath, options = {}) {
   }
 }
 
+async function reconcileLocalGPUSessionIndex(projectPath, options = {}) {
+  const { sessionId = null, projectName = null } = options;
+  if (!sessionId) return;
+  const resolvedProjectName = projectName || encodeProjectPath(projectPath);
+  const sessionFile = path.join(os.homedir(), '.dr-claw', 'localgpu-sessions', `${sessionId}.jsonl`);
+  try {
+    const raw = await fs.readFile(sessionFile, 'utf-8');
+    const lines = raw.trim().split('\n').filter(Boolean);
+    let displayName = null;
+    let messageCount = 0;
+    let lastActivity = null;
+    for (const line of lines) {
+      try {
+        const entry = JSON.parse(line);
+        if (entry.role === 'user' && !displayName) {
+          const raw = (entry.content || '').replace(/\s*\[Context:[^\]]*\]\s*/gi, '').trim();
+          displayName = raw.slice(0, 100) || null;
+        }
+        if (entry.role === 'user' || entry.role === 'assistant') {
+          messageCount++;
+        }
+        if (entry.ts) lastActivity = entry.ts;
+      } catch {}
+    }
+    const { sessionDb } = await import('./database/db.js');
+    sessionDb.upsertSession(
+      sessionId,
+      resolvedProjectName,
+      'local',
+      displayName || 'Local GPU Session',
+      lastActivity || new Date().toISOString(),
+      messageCount,
+      null,
+    );
+  } catch (err) {
+    console.warn(`[LocalGPU] Failed to reconcile session ${sessionId}:`, err.message);
+  }
+}
+
 async function reconcileCodexSessionIndex(projectPath, options = {}) {
   const { limit = 0, sessionId = null, previousSessionId = null, projectName = null } = options;
   const sessions = await getCodexSessions(projectPath, {
@@ -1283,6 +1322,7 @@ async function getProjects(userId, progressCallback = null) {
       const codexSessions = projectSessions.filter((session) => session.provider === 'codex');
       const geminiSessions = projectSessions.filter((session) => session.provider === 'gemini');
       const openrouterSessions = projectSessions.filter((session) => session.provider === 'openrouter');
+      const localSessions = projectSessions.filter((session) => session.provider === 'local');
 
       project.sessions = claudeSessions.slice(0, 5).map((session) => mapIndexedSessionToProjectSession(session, 'claude'));
       project.sessionMeta = {
@@ -1293,6 +1333,7 @@ async function getProjects(userId, progressCallback = null) {
       project.codexSessions = codexSessions.slice(0, 5).map((session) => mapIndexedSessionToProjectSession(session, 'codex'));
       project.geminiSessions = geminiSessions.slice(0, 5).map((session) => mapIndexedSessionToProjectSession(session, 'gemini'));
       project.openrouterSessions = openrouterSessions.slice(0, 5).map((session) => mapIndexedSessionToProjectSession(session, 'openrouter'));
+      project.localSessions = localSessions.slice(0, 5).map((session) => mapIndexedSessionToProjectSession(session, 'local'));
 
       const taskmasterResult = await detectTaskMasterFolder(actualProjectDir).catch(() => null);
 
@@ -1943,6 +1984,78 @@ async function getSessionMessages(projectName, sessionId, limit = null, offset =
     }
   }
 
+  if (provider === 'local') {
+    const localSessionFile = path.join(os.homedir(), '.dr-claw', 'localgpu-sessions', `${sessionId}.jsonl`);
+    console.log(`[DEBUG] Reading Local GPU session file: ${localSessionFile}`);
+    try {
+      await fs.access(localSessionFile);
+      const messages = [];
+      const raw = await fs.readFile(localSessionFile, 'utf-8');
+      for (const line of raw.trim().split('\n').filter(Boolean)) {
+        try {
+          const entry = JSON.parse(line);
+          if (entry.role === 'system') continue;
+          if (entry.role === 'user') {
+            messages.push({
+              type: 'message',
+              role: 'user',
+              content: entry.content || '',
+              timestamp: entry.ts,
+            });
+          } else if (entry.role === 'assistant') {
+            if (entry.content) {
+              messages.push({
+                type: 'message',
+                role: 'assistant',
+                content: entry.content,
+                timestamp: entry.ts,
+              });
+            }
+            if (Array.isArray(entry.tool_calls)) {
+              for (const tc of entry.tool_calls) {
+                let toolInput;
+                try { toolInput = tc.function?.arguments || '{}'; } catch { toolInput = '{}'; }
+                messages.push({
+                  type: 'tool_use',
+                  timestamp: entry.ts,
+                  toolName: tc.function?.name || 'unknown',
+                  toolInput,
+                  toolCallId: tc.id,
+                });
+              }
+            }
+          } else if (entry.role === 'tool') {
+            messages.push({
+              type: 'tool_result',
+              role: 'tool',
+              output: entry.content,
+              tool_call_id: entry.tool_call_id,
+              toolCallId: entry.tool_call_id,
+              timestamp: entry.ts,
+            });
+          }
+        } catch {}
+      }
+
+      console.log(`[DEBUG] Found ${messages.length} valid messages in Local GPU session file`);
+      const total = messages.length;
+      if (limit === null) return messages;
+
+      const startIndex = Math.max(0, total - offset - limit);
+      const endIndex = total - offset;
+      return {
+        messages: messages.slice(startIndex, endIndex),
+        total,
+        hasMore: startIndex > 0,
+        offset,
+        limit,
+      };
+    } catch (e) {
+      console.warn(`Could not read Local GPU session ${sessionId}:`, e.message);
+      return limit === null ? [] : { messages: [], total: 0, hasMore: false };
+    }
+  }
+
   const projectDir = path.join(os.homedir(), '.claude', 'projects', projectName);
 
   try {
@@ -2134,6 +2247,32 @@ async function deleteSession(projectName, sessionId, provider = 'claude') {
     }
 
     throw new Error(`OpenRouter session ${sessionId} not found in file system or index`);
+  }
+
+  if (provider === 'local') {
+    const localSessionFile = path.join(os.homedir(), '.dr-claw', 'localgpu-sessions', `${sessionId}.jsonl`);
+    let deletedFile = false;
+    try {
+      await fs.unlink(localSessionFile);
+      deletedFile = true;
+    } catch (e) {
+      if (e?.code !== 'ENOENT') {
+        console.error(`[LocalGPU] Failed to delete session ${sessionId}:`, e.message);
+        throw new Error(`Failed to delete Local GPU session: ${e.message}`);
+      }
+    }
+
+    const deletedIndex = indexedSession?.provider === 'local' || deletedFile;
+    if (deletedIndex) {
+      sessionDb.deleteSession(sessionId);
+    }
+
+    if (deletedFile || deletedIndex) {
+      console.log(`[LocalGPU] Deleted session ${sessionId}${deletedFile ? ` file: ${localSessionFile}` : ' from index only'}`);
+      return true;
+    }
+
+    throw new Error(`Local GPU session ${sessionId} not found in file system or index`);
   }
 
   const projectDir = path.join(os.homedir(), '.claude', 'projects', projectName);
@@ -3902,6 +4041,7 @@ export {
   reconcileCodexSessionIndex,
   reconcileGeminiSessionIndex,
   reconcileOpenRouterSessionIndex,
+  reconcileLocalGPUSessionIndex,
   ensureProjectSkillLinks,
   getWorkspaceRootFromConfig,
   setWorkspaceRootInConfig

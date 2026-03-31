@@ -147,7 +147,13 @@ export const getAllSessions = (
     __projectName: project.name,
   }));
 
-  return [...claudeSessions, ...cursorSessions, ...codexSessions, ...geminiSessions, ...openrouterSessions].sort(
+  const localSessions = (project.localSessions || []).map((session) => ({
+    ...session,
+    __provider: 'local' as const,
+    __projectName: project.name,
+  }));
+
+  return [...claudeSessions, ...cursorSessions, ...codexSessions, ...geminiSessions, ...openrouterSessions, ...localSessions].sort(
     (a, b) => getSessionDate(b).getTime() - getSessionDate(a).getTime(),
   );
 };

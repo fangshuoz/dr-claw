@@ -51,6 +51,7 @@ import { spawnCursor, abortCursorSession, isCursorSessionActive, getCursorSessio
 import { queryCodex, abortCodexSession, isCodexSessionActive, getCodexSessionStartTime, getActiveCodexSessions } from './openai-codex.js';
 import { spawnGemini, abortGeminiSession, isGeminiSessionActive, getGeminiSessionStartTime, getActiveGeminiSessions } from './gemini-cli.js';
 import { queryOpenRouter, abortOpenRouterSession, isOpenRouterSessionActive, getOpenRouterSessionStartTime, getActiveOpenRouterSessions } from './openrouter.js';
+import { queryLocalGPU, abortLocalGPUSession, isLocalGPUSessionActive, getLocalGPUSessionStartTime, getActiveLocalGPUSessions } from './local-gpu.js';
 import gitRoutes from './routes/git.js';
 import authRoutes from './routes/auth.js';
 import mcpRoutes from './routes/mcp.js';
@@ -1631,6 +1632,36 @@ function handleChatConnection(ws, request) {
                 queryOpenRouter(data.command, { ...data.options, env: sessionEnv }, writer).catch(error => {
                     console.error('[ERROR] OpenRouter query error:', error);
                 });
+            } else if (data.type === 'local-command') {
+                console.log('[DEBUG] Local GPU message:', data.command || '[Continue/Resume]');
+                console.log('📁 Project:', data.options?.projectPath || data.options?.cwd || 'Unknown');
+                console.log('🔄 Session:', data.options?.sessionId ? 'Resume' : 'New');
+                console.log('🤖 Model:', data.options?.model || 'default');
+                console.log('🖥️ Server:', data.options?.serverUrl || 'default');
+                const commandTelemetryEnabled = data.options?.telemetryEnabled !== false;
+                const sessionId = data.options?.sessionId || data.sessionId;
+
+                if (sessionId && isLocalGPUSessionActive(sessionId)) {
+                    console.log(`[WARN] Local GPU session ${sessionId} is already active. Ignoring concurrent request.`);
+                    return;
+                }
+
+                enqueueConversationTelemetry(
+                    {
+                        name: 'agent_dialogue_meta',
+                        direction: 'user_to_agent',
+                        provider: 'local',
+                        sessionId: sessionId || null,
+                        projectPath: data.options?.projectPath || data.options?.cwd || null,
+                        transportType: data.type,
+                    },
+                    { ...telemetryContext, telemetryEnabled: commandTelemetryEnabled },
+                );
+                writer.telemetryContext = { ...telemetryContext, provider: 'local', telemetryEnabled: commandTelemetryEnabled };
+                writer.setProjectPath(data.options?.projectPath || data.options?.cwd || null);
+                queryLocalGPU(data.command, { ...data.options, env: sessionEnv }, writer).catch(error => {
+                    console.error('[ERROR] Local GPU query error:', error);
+                });
             } else if (data.type === 'cursor-resume') {
                 // Backward compatibility: treat as cursor-command with resume and no prompt
                 console.log('[DEBUG] Cursor resume session (compat):', data.sessionId);
@@ -1662,6 +1693,8 @@ function handleChatConnection(ws, request) {
                     success = abortGeminiSession(data.sessionId);
                 } else if (provider === 'openrouter') {
                     success = abortOpenRouterSession(data.sessionId);
+                } else if (provider === 'local') {
+                    success = abortLocalGPUSession(data.sessionId);
                 } else {
                     // Use Claude Agents SDK
                     success = await abortClaudeSDKSession(data.sessionId);
@@ -1713,6 +1746,9 @@ function handleChatConnection(ws, request) {
                 } else if (provider === 'openrouter') {
                     isActive = isOpenRouterSessionActive(sessionId);
                     startTime = getOpenRouterSessionStartTime(sessionId);
+                } else if (provider === 'local') {
+                    isActive = isLocalGPUSessionActive(sessionId);
+                    startTime = getLocalGPUSessionStartTime(sessionId);
                 } else {
                     // Use Claude Agents SDK
                     isActive = isClaudeSDKSessionActive(sessionId);
@@ -1732,7 +1768,8 @@ function handleChatConnection(ws, request) {
                     claude: getActiveClaudeSDKSessions(),
                     cursor: getActiveCursorSessions(),
                     codex: getActiveCodexSessions(),
-                    gemini: getActiveGeminiSessions()
+                    gemini: getActiveGeminiSessions(),
+                    local: getActiveLocalGPUSessions()
                 };
 
                 writer.send({

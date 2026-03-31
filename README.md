@@ -835,7 +835,7 @@ If you find Dr. Claw useful in your research, please cite:
 
 ```bibtex
 @misc{song2026drclaw,
-  author       = {Dingjie Song and Hanrong Zhang and Dawei Liu and Yixin Liu and Zhengqing Yuan and Zongxia Li and Siqi Zhang and Lichao Sun},
+  author       = {Dingjie Song and Hanrong Zhang and Dawei Liu and Yixin Liu and Zongxia Li and Zhengqing Yuan and Siqi Zhang and Lichao Sun},
   title        = {Dr. Claw: An AI Research Workspace from Idea to Paper},
   year         = {2026},
   organization = {GitHub},

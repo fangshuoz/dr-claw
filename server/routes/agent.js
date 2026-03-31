@@ -11,8 +11,9 @@ import { spawnCursor } from '../cursor-cli.js';
 import { queryCodex } from '../openai-codex.js';
 import { spawnGemini } from '../gemini-cli.js';
 import { queryOpenRouter } from '../openrouter.js';
+import { queryLocalGPU } from '../local-gpu.js';
 import { Octokit } from '@octokit/rest';
-import { CLAUDE_MODELS, CURSOR_MODELS, CODEX_MODELS, GEMINI_MODELS, OPENROUTER_MODELS } from '../../shared/modelConstants.js';
+import { CLAUDE_MODELS, CURSOR_MODELS, CODEX_MODELS, GEMINI_MODELS, LOCAL_MODELS, OPENROUTER_MODELS } from '../../shared/modelConstants.js';
 import { IS_PLATFORM } from '../constants/config.js';
 import { getGeminiApiKeyForUser, withGeminiApiKeyEnv } from '../utils/geminiApiKey.js';
 
@@ -858,8 +859,8 @@ router.post('/', validateExternalApiKey, async (req, res) => {
     return res.status(400).json({ error: 'message is required' });
   }
 
-  if (!['claude', 'cursor', 'codex', 'gemini', 'openrouter'].includes(provider)) {
-    return res.status(400).json({ error: 'provider must be "claude", "cursor", "codex", "gemini", or "openrouter"' });
+  if (!['claude', 'cursor', 'codex', 'gemini', 'openrouter', 'local'].includes(provider)) {
+    return res.status(400).json({ error: 'provider must be "claude", "cursor", "codex", "gemini", "openrouter", or "local"' });
   }
 
   // Validate GitHub branch/PR creation requirements
@@ -999,6 +1000,17 @@ router.post('/', validateExternalApiKey, async (req, res) => {
         sessionId: null,
         model: model || OPENROUTER_MODELS.DEFAULT,
         env: sessionEnv,
+      }, writer);
+    } else if (provider === 'local') {
+      console.log('🤖 Starting Local GPU session');
+
+      await queryLocalGPU(message.trim(), {
+        projectPath: finalProjectPath,
+        cwd: finalProjectPath,
+        sessionId: null,
+        model: model || LOCAL_MODELS.DEFAULT || 'qwen3:8b',
+        env: sessionEnv,
+        permissionMode: 'bypassPermissions',
       }, writer);
     }
 

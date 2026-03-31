@@ -1,4 +1,4 @@
-export type SessionProvider = 'claude' | 'cursor' | 'codex' | 'gemini' | 'openrouter';
+export type SessionProvider = 'claude' | 'cursor' | 'codex' | 'gemini' | 'openrouter' | 'local';
 
 export type SessionMode = 'research' | 'workspace_qa';
 
@@ -76,6 +76,7 @@ export interface Project {
   codexSessions?: ProjectSession[];
   geminiSessions?: ProjectSession[];
   openrouterSessions?: ProjectSession[];
+  localSessions?: ProjectSession[];
   sessionMeta?: ProjectSessionMeta;
   taskmaster?: ProjectTaskmasterInfo;
   [key: string]: unknown;

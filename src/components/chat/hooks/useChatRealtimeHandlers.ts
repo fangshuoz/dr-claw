@@ -383,6 +383,7 @@ export function useChatRealtimeHandlers({
       'codex-complete',
       'gemini-complete',
       'openrouter-complete',
+      'localgpu-complete',
       'cursor-result',
       'session-aborted',
       'claude-error',
@@ -390,6 +391,7 @@ export function useChatRealtimeHandlers({
       'codex-error',
       'gemini-error',
       'openrouter-error',
+      'localgpu-error',
     ]);
 
     const isClaudeSystemInit =
@@ -671,6 +673,7 @@ export function useChatRealtimeHandlers({
         break;
       }
 
+      case 'localgpu-response':
       case 'openrouter-response': {
         const orData = latestMessage.data;
         if (orData && typeof orData === 'object') {
@@ -771,7 +774,8 @@ export function useChatRealtimeHandlers({
 
       case 'claude-complete':
       case 'gemini-complete':
-      case 'openrouter-complete': {
+      case 'openrouter-complete':
+      case 'localgpu-complete': {
         const pendingSessionId = sessionStorage.getItem('pendingSessionId');
         const completedSessionId = latestMessage.sessionId || currentSessionId || pendingSessionId;
         flushAndFinalizePendingStream();
@@ -790,7 +794,8 @@ export function useChatRealtimeHandlers({
 
       case 'claude-error':
       case 'gemini-error':
-      case 'openrouter-error': {
+      case 'openrouter-error':
+      case 'localgpu-error': {
         if (isLegacyTaskMasterInstallError(latestMessage.error)) {
           break;
         }

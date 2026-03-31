@@ -112,6 +112,17 @@ export const OPENROUTER_MODELS = {
 };
 
 /**
+ * Local GPU Models (open-source models for self-hosted deployment)
+ */
+export const LOCAL_MODELS = {
+  OPTIONS: [],
+
+  IS_LOCAL: true,
+
+  DEFAULT: ''
+};
+
+/**
  * Gemini (Google) Models
  */
 export const GEMINI_MODELS = {

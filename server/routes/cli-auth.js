@@ -58,8 +58,9 @@ router.get('/claude/status', async (req, res) => {
       }, 'claude'));
     }
 
-    // Check for Custom API env var
-    if (process.env.ANTHROPIC_AUTH_TOKEN) {
+    // Check for Custom API env var (ANTHROPIC_API_KEY is the correct var for the SDK;
+    // also check legacy ANTHROPIC_AUTH_TOKEN for backward compatibility)
+    if (process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN) {
       return res.json(buildStatusPayload({
         authenticated: true,
         email: 'Custom API Connected',
@@ -156,6 +157,16 @@ async function checkGeminiCredentials() {
     cliCommand = resolvedCliCommand || cliCommand;
 
     if (!resolvedCliCommand) {
+      if (process.env.GOOGLE_API_KEY) {
+        return {
+          authenticated: true,
+          email: 'API Key Connected',
+          method: 'custom_api',
+          cliAvailable: false,
+          cliCommand,
+          installHint: buildCliInstallHint('gemini')
+        };
+      }
       return {
         authenticated: false,
         email: null,
@@ -512,6 +523,17 @@ async function checkCodexCredentials() {
     cliCommand = resolvedCliCommand || cliCommand;
 
     if (!resolvedCliCommand) {
+      // Even without CLI, an OPENAI_API_KEY env var means Codex SDK can work
+      if (process.env.OPENAI_API_KEY) {
+        return {
+          authenticated: true,
+          email: 'API Key Connected',
+          method: 'custom_api',
+          cliAvailable: false,
+          cliCommand,
+          installHint: buildCliInstallHint('codex')
+        };
+      }
       return {
         authenticated: false,
         email: null,
@@ -556,11 +578,12 @@ async function checkCodexCredentials() {
       };
     }
 
-    // Also check for OPENAI_API_KEY as fallback auth method
-    if (auth.OPENAI_API_KEY) {
+    // Also check for OPENAI_API_KEY as fallback auth method (in auth.json or env)
+    if (auth.OPENAI_API_KEY || process.env.OPENAI_API_KEY) {
       return {
         authenticated: true,
-        email: 'API Key Auth',
+        email: 'API Key Connected',
+        method: 'custom_api',
         cliAvailable: true,
         cliCommand
       };
@@ -574,6 +597,16 @@ async function checkCodexCredentials() {
       cliCommand
     };
   } catch (error) {
+    // File not found — check env var before giving up
+    if (process.env.OPENAI_API_KEY) {
+      return {
+        authenticated: true,
+        email: 'API Key Connected',
+        method: 'custom_api',
+        cliAvailable: true,
+        cliCommand
+      };
+    }
     if (error.code === 'ENOENT') {
       return {
         authenticated: false,
@@ -660,6 +693,78 @@ router.post('/openrouter/verify-api-key', async (req, res) => {
   }
 });
 
+router.post('/gemini/verify-api-key', async (req, res) => {
+  try {
+    const { apiKey } = req.body;
+    if (!apiKey) return res.status(400).json({ error: 'API key is required' });
+
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
+
+    if (response.ok) {
+      const envPath = path.join(process.cwd(), '.env');
+      let envContent = '';
+      try { envContent = await fs.readFile(envPath, 'utf8'); } catch {}
+
+      const lines = envContent.split('\n');
+      let found = false;
+      const newLines = lines.map(line => {
+        if (line.trim().startsWith('GOOGLE_API_KEY=')) {
+          found = true;
+          return `GOOGLE_API_KEY=${apiKey}`;
+        }
+        return line;
+      }).filter(l => l.trim() !== '' || found);
+
+      if (!found) newLines.push(`GOOGLE_API_KEY=${apiKey}`);
+      await fs.writeFile(envPath, newLines.join('\n') + '\n');
+      process.env.GOOGLE_API_KEY = apiKey;
+
+      return res.json({ success: true, message: 'Google API key verified and saved.' });
+    } else {
+      return res.status(401).json({ error: 'Invalid API key' });
+    }
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.post('/codex/verify-api-key', async (req, res) => {
+  try {
+    const { apiKey } = req.body;
+    if (!apiKey) return res.status(400).json({ error: 'API key is required' });
+
+    const response = await fetch('https://api.openai.com/v1/models', {
+      headers: { 'Authorization': `Bearer ${apiKey}` }
+    });
+
+    if (response.ok) {
+      const envPath = path.join(process.cwd(), '.env');
+      let envContent = '';
+      try { envContent = await fs.readFile(envPath, 'utf8'); } catch {}
+
+      const lines = envContent.split('\n');
+      let found = false;
+      const newLines = lines.map(line => {
+        if (line.trim().startsWith('OPENAI_API_KEY=')) {
+          found = true;
+          return `OPENAI_API_KEY=${apiKey}`;
+        }
+        return line;
+      }).filter(l => l.trim() !== '' || found);
+
+      if (!found) newLines.push(`OPENAI_API_KEY=${apiKey}`);
+      await fs.writeFile(envPath, newLines.join('\n') + '\n');
+      process.env.OPENAI_API_KEY = apiKey;
+
+      return res.json({ success: true, message: 'OpenAI API key verified and saved.' });
+    } else {
+      return res.status(401).json({ error: 'Invalid API key' });
+    }
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 router.post('/claude/verify-custom-api', async (req, res) => {
   try {
     const { baseUrl, token } = req.body;
@@ -690,17 +795,23 @@ router.post('/claude/verify-custom-api', async (req, res) => {
 
       const keysToUpdate = {
         'ANTHROPIC_BASE_URL': baseUrl || 'https://api.anthropic.com',
-        'ANTHROPIC_AUTH_TOKEN': token,
+        'ANTHROPIC_API_KEY': token,
         'CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS': '1'
       };
+
+      const keysToRemove = new Set(['ANTHROPIC_AUTH_TOKEN']);
 
       const newLines = [];
       const existingKeys = new Set();
       envContent.split('\n').forEach(line => {
         const [key] = line.split('=');
-        if (keysToUpdate[key.trim()]) {
-          newLines.push(`${key.trim()}=${keysToUpdate[key.trim()]}`);
-          existingKeys.add(key.trim());
+        const trimmedKey = key.trim();
+        if (keysToRemove.has(trimmedKey)) {
+          return;
+        }
+        if (keysToUpdate[trimmedKey]) {
+          newLines.push(`${trimmedKey}=${keysToUpdate[trimmedKey]}`);
+          existingKeys.add(trimmedKey);
         } else if (line.trim()) {
           newLines.push(line);
         }
@@ -717,12 +828,128 @@ router.post('/claude/verify-custom-api', async (req, res) => {
       Object.entries(keysToUpdate).forEach(([key, val]) => {
         process.env[key] = val;
       });
+      delete process.env.ANTHROPIC_AUTH_TOKEN;
 
       return res.json({ success: true, message: 'Custom API verified and applied.' });
     } else {
       const err = await response.text();
       return res.status(response.status).json({ error: `Verification failed: ${err}` });
     }
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Local GPU / Ollama routes
+// ---------------------------------------------------------------------------
+
+import { detectGPUs, checkOllamaStatus, pullOllamaModel } from '../local-gpu.js';
+
+router.get('/local/gpu-info', async (req, res) => {
+  try {
+    const result = await detectGPUs();
+    return res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.get('/local/status', async (req, res) => {
+  try {
+    const serverUrl = process.env.LOCAL_GPU_SERVER_URL || 'http://localhost:11434';
+    const status = await checkOllamaStatus(serverUrl);
+
+    if (status.running) {
+      const gpus = await detectGPUs().catch(() => ({ gpus: [] }));
+      const hasGpu = gpus.gpus && gpus.gpus.length > 0;
+
+      return res.json(buildStatusPayload({
+        authenticated: true,
+        email: `Ollama · ${status.models.length} model${status.models.length !== 1 ? 's' : ''}${hasGpu ? ' · GPU detected' : ''}`,
+        cliAvailable: true,
+        cliCommand: null,
+      }, 'local'));
+    }
+
+    return res.json(buildStatusPayload({
+      authenticated: false,
+      email: null,
+      error: status.error,
+      cliAvailable: true,
+      cliCommand: null,
+      installHint: 'Install Ollama from https://ollama.com and run: ollama serve',
+    }, 'local'));
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.get('/local/models', async (req, res) => {
+  try {
+    const serverUrl = req.query.serverUrl || process.env.LOCAL_GPU_SERVER_URL || 'http://localhost:11434';
+    const status = await checkOllamaStatus(serverUrl);
+    if (!status.running) {
+      return res.status(503).json({ error: 'Ollama is not running', models: [] });
+    }
+
+    const gpus = await detectGPUs().catch(() => ({ gpus: [] }));
+    const hasGpu = gpus.gpus && gpus.gpus.length > 0;
+    let maxVramMb = 0;
+    if (hasGpu) {
+      for (const gpu of gpus.gpus) {
+        if (gpu.memoryTotal) maxVramMb = Math.max(maxVramMb, gpu.memoryTotal);
+      }
+    }
+
+    return res.json({
+      models: status.models,
+      hasGpu,
+      maxVramMb,
+      gpuCount: gpus.gpus.length,
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.post('/local/pull-model', async (req, res) => {
+  try {
+    const { modelName, serverUrl } = req.body;
+    if (!modelName) return res.status(400).json({ error: 'modelName is required' });
+
+    const url = serverUrl || process.env.LOCAL_GPU_SERVER_URL || 'http://localhost:11434';
+    await pullOllamaModel(url, modelName);
+    return res.json({ success: true, message: `Model "${modelName}" pulled successfully.` });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.post('/local/save-config', async (req, res) => {
+  try {
+    const { serverUrl } = req.body;
+    if (serverUrl) {
+      const envPath = path.join(process.cwd(), '.env');
+      let envContent = '';
+      try { envContent = await fs.readFile(envPath, 'utf8'); } catch {}
+
+      const lines = envContent.split('\n');
+      let found = false;
+      const newLines = lines.map(line => {
+        if (line.trim().startsWith('LOCAL_GPU_SERVER_URL=')) {
+          found = true;
+          return `LOCAL_GPU_SERVER_URL=${serverUrl}`;
+        }
+        return line;
+      }).filter(l => l.trim() !== '' || found);
+
+      if (!found) newLines.push(`LOCAL_GPU_SERVER_URL=${serverUrl}`);
+      await fs.writeFile(envPath, newLines.join('\n') + '\n');
+      process.env.LOCAL_GPU_SERVER_URL = serverUrl;
+    }
+
+    return res.json({ success: true, message: 'Local GPU configuration saved.' });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

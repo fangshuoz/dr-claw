@@ -16,9 +16,13 @@ import { authenticatedFetch } from '../../../utils/api';
 import { isTelemetryEnabled } from '../../../utils/telemetry';
 
 import { thinkingModes } from '../constants/thinkingModes';
+import type { CodexReasoningEffortId } from '../constants/codexReasoningEfforts';
+import { getSupportedCodexReasoningEfforts } from '../constants/codexReasoningSupport';
+import type { GeminiThinkingModeId } from '../../../../shared/geminiThinkingSupport';
+import { getSupportedGeminiThinkingModes } from '../../../../shared/geminiThinkingSupport';
 
 import { grantToolPermission } from '../utils/chatPermissions';
-import { getProviderSettingsKey, persistSessionTimerStart, safeLocalStorage } from '../utils/chatStorage';
+import { clearSessionTimerStart, getProviderSettingsKey, persistSessionTimerStart, safeLocalStorage } from '../utils/chatStorage';
 import { consumeWorkspaceQaDraft, WORKSPACE_QA_DRAFT_EVENT } from '../../../utils/workspaceQa';
 import { consumeReferenceChatDraft, REFERENCE_CHAT_DRAFT_EVENT } from '../../../utils/referenceChatDraft';
 import type {
@@ -53,6 +57,7 @@ interface UseChatComposerStateArgs {
   codexModel: string;
   geminiModel: string;
   openrouterModel: string;
+  localModel: string;
   isLoading: boolean;
   canAbortSession: boolean;
   tokenBudget: TokenBudget | null;
@@ -197,6 +202,7 @@ export function useChatComposerState({
   codexModel,
   geminiModel,
   openrouterModel,
+  localModel,
   isLoading,
   canAbortSession,
   tokenBudget,
@@ -229,6 +235,39 @@ export function useChatComposerState({
   const [fileErrors, setFileErrors] = useState<Map<string, string>>(new Map());
   const [isTextareaExpanded, setIsTextareaExpanded] = useState(false);
   const [thinkingMode, setThinkingMode] = useState('none');
+  const [codexReasoningEffort, setCodexReasoningEffort] = useState<CodexReasoningEffortId>(() => {
+    const savedValue = safeLocalStorage.getItem('codex-reasoning-effort');
+    switch (savedValue) {
+      case 'minimal':
+      case 'low':
+      case 'medium':
+      case 'high':
+      case 'xhigh':
+      case 'default':
+        return savedValue;
+      default:
+        return 'default';
+      }
+  });
+  const [geminiThinkingMode, setGeminiThinkingMode] = useState<GeminiThinkingModeId>(() => {
+    const savedValue = safeLocalStorage.getItem('gemini-thinking-mode');
+    switch (savedValue) {
+      case 'default':
+      case 'minimal':
+      case 'low':
+      case 'medium':
+      case 'high':
+      case 'dynamic':
+      case 'off':
+      case 'light':
+      case 'balanced':
+      case 'deep':
+      case 'max':
+        return savedValue;
+      default:
+        return 'default';
+    }
+  });
   const [intakeGreeting, setIntakeGreeting] = useState<string | null>(null);
   const [pendingStageTagKeys, setPendingStageTagKeys] = useState<string[]>([]);
   const [attachedPrompt, setAttachedPrompt] = useState<AttachedPrompt | null>(null);
@@ -253,6 +292,28 @@ export function useChatComposerState({
   useEffect(() => {
     setPendingStageTagKeys([]);
   }, [selectedProject?.name, selectedSession?.id]);
+
+  useEffect(() => {
+    safeLocalStorage.setItem('codex-reasoning-effort', codexReasoningEffort);
+  }, [codexReasoningEffort]);
+
+  useEffect(() => {
+    safeLocalStorage.setItem('gemini-thinking-mode', geminiThinkingMode);
+  }, [geminiThinkingMode]);
+
+  useEffect(() => {
+    const supportedEfforts = getSupportedCodexReasoningEfforts(codexModel);
+    if (!supportedEfforts.includes(codexReasoningEffort)) {
+      setCodexReasoningEffort('default');
+    }
+  }, [codexModel, codexReasoningEffort]);
+
+  useEffect(() => {
+    const supportedModes = getSupportedGeminiThinkingModes(geminiModel);
+    if (!supportedModes.includes(geminiThinkingMode)) {
+      setGeminiThinkingMode('default');
+    }
+  }, [geminiModel, geminiThinkingMode]);
 
   const handleBuiltInCommand = useCallback(
     (result: CommandExecutionResult) => {
@@ -1019,6 +1080,7 @@ export function useChatComposerState({
             resume: Boolean(effectiveSessionId),
             model: geminiModel,
             permissionMode,
+            thinkingMode: geminiThinkingMode,
             images: uploadedImages.length > 0 ? uploadedImages : undefined,
             toolsSettings,
             telemetryEnabled,
@@ -1040,6 +1102,7 @@ export function useChatComposerState({
             resume: Boolean(effectiveSessionId),
             model: codexModel,
             permissionMode: permissionMode === 'plan' ? 'default' : permissionMode,
+            modelReasoningEffort: codexReasoningEffort === 'default' ? undefined : codexReasoningEffort,
             attachments: codexAttachmentPayload,
             images: uploadedImages,
             telemetryEnabled,
@@ -1060,6 +1123,28 @@ export function useChatComposerState({
             sessionId: effectiveSessionId,
             resume: Boolean(effectiveSessionId),
             model: openrouterModel,
+            permissionMode,
+            toolsSettings,
+            telemetryEnabled,
+            sessionMode: isNewSession ? newSessionMode : selectedSession?.mode,
+            stageTagKeys: pendingStageTagKeys,
+            stageTagSource: 'task_context',
+          },
+        });
+      } else if (provider === 'local') {
+        console.log('[DEBUG] Sending local-command');
+        sendMessage({
+          type: 'local-command',
+          command: messageContent,
+          sessionId: effectiveSessionId,
+          options: {
+            cwd: resolvedProjectPath,
+            projectPath: resolvedProjectPath,
+            sessionId: effectiveSessionId,
+            resume: Boolean(effectiveSessionId),
+            model: localModel,
+            serverUrl: localStorage.getItem('local-gpu-server-url') || 'http://localhost:11434',
+            gpuId: localStorage.getItem('local-gpu-selected') || undefined,
             permissionMode,
             toolsSettings,
             telemetryEnabled,
@@ -1112,11 +1197,14 @@ export function useChatComposerState({
       attachedPrompt,
       claudeModel,
       codexModel,
+      codexReasoningEffort,
       currentSessionId,
       cursorModel,
       executeCommand,
+      geminiThinkingMode,
       geminiModel,
       openrouterModel,
+      localModel,
       isLoading,
       onSessionActive,
       pendingViewSessionRef,
@@ -1363,6 +1451,16 @@ export function useChatComposerState({
 
   const handleAbortSession = useCallback(() => {
     if (!canAbortSession) {
+      // Force-reset the UI when Stop is clicked but no active abort is possible.
+      // This handles stale state after server restarts or lost WebSocket connections.
+      if (isLoading) {
+        setIsLoading(false);
+        setCanAbortSession(false);
+        setClaudeStatus(null);
+        setPendingPermissionRequests([]);
+        const sessionId = currentSessionId || selectedSession?.id;
+        if (sessionId) clearSessionTimerStart(sessionId);
+      }
       return;
     }
 
@@ -1412,8 +1510,9 @@ export function useChatComposerState({
       setIsLoading(false);
       setCanAbortSession(false);
       setClaudeStatus(null);
+      if (targetSessionId) clearSessionTimerStart(targetSessionId);
     }, 5000);
-  }, [canAbortSession, currentSessionId, pendingViewSessionRef, provider, selectedSession?.id, sendMessage, setCanAbortSession, setChatMessages, setClaudeStatus, setIsLoading]);
+  }, [canAbortSession, currentSessionId, isLoading, pendingViewSessionRef, provider, selectedSession?.id, sendMessage, setCanAbortSession, setChatMessages, setClaudeStatus, setIsLoading, setPendingPermissionRequests]);
 
   const handleTranscript = useCallback((text: string) => {
     if (!text.trim()) {
@@ -1517,6 +1616,10 @@ export function useChatComposerState({
     isTextareaExpanded,
     thinkingMode,
     setThinkingMode,
+    codexReasoningEffort,
+    setCodexReasoningEffort,
+    geminiThinkingMode,
+    setGeminiThinkingMode,
     slashCommandsCount,
     filteredCommands,
     frequentCommands,

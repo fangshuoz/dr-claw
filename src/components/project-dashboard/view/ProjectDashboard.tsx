@@ -197,6 +197,7 @@ function getProjectSessions(project: Project): ProjectSession[] {
     ...(project.codexSessions ?? []),
     ...(project.geminiSessions ?? []),
     ...(project.openrouterSessions ?? []),
+    ...(project.localSessions ?? []),
   ];
 }
 
