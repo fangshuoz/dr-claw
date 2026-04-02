@@ -166,6 +166,57 @@ router.post('/nodes/:id/sync', async (req, res) => {
   }
 });
 
+// POST /api/compute/nodes/:id/sync-tasks - Start async sync task
+router.post('/nodes/:id/sync-tasks', async (req, res) => {
+  try {
+    const { direction = 'up', cwd, files } = req.body;
+    if (!cwd) return res.status(400).json({ error: 'Working directory (cwd) is required' });
+
+    const task = await ComputeNode.startSyncTask({
+      nodeId: req.params.id,
+      direction,
+      cwd,
+      files: files || [],
+    });
+    res.status(202).json({ success: true, task });
+  } catch (error) {
+    console.error('Error starting sync task:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// GET /api/compute/nodes/:id/sync-tasks - List recent sync tasks
+router.get('/nodes/:id/sync-tasks', async (req, res) => {
+  try {
+    const limit = Number.parseInt(req.query.limit, 10);
+    const tasks = await ComputeNode.listSyncTasks({
+      nodeId: req.params.id,
+      limit: Number.isFinite(limit) ? limit : 10,
+    });
+    res.json({ success: true, tasks });
+  } catch (error) {
+    console.error('Error listing sync tasks:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// GET /api/compute/nodes/:id/sync-tasks/:taskId - Get sync task details
+router.get('/nodes/:id/sync-tasks/:taskId', async (req, res) => {
+  try {
+    const task = await ComputeNode.getSyncTask({
+      nodeId: req.params.id,
+      taskId: req.params.taskId,
+    });
+    if (!task) {
+      return res.status(404).json({ success: false, error: 'Sync task not found' });
+    }
+    res.json({ success: true, task });
+  } catch (error) {
+    console.error('Error loading sync task:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 // POST /api/compute/nodes/:id/run - Run command on node
 router.post('/nodes/:id/run', async (req, res) => {
   try {

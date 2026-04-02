@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Server, Terminal, Upload, Save, Play, RefreshCw, Globe, CheckCircle, XCircle, Loader2, Download, Plus, Trash2, Edit3, X, Cpu, Clock, Layers } from 'lucide-react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -39,6 +39,136 @@ const ResultBlock = ({ result }) => {
 const Label = ({ children }) => (
   <label className="text-sm font-medium leading-none block mb-1.5 text-gray-700 dark:text-gray-300">{children}</label>
 );
+
+const SYNC_TASK_POLL_MS = 1500;
+
+const getSyncTaskStatusMeta = (status) => {
+  if (status === 'running') {
+    return {
+      label: 'Running',
+      tone: 'text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800',
+      icon: Loader2,
+      spin: true,
+    };
+  }
+  if (status === 'queued') {
+    return {
+      label: 'Queued',
+      tone: 'text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800',
+      icon: Clock,
+      spin: false,
+    };
+  }
+  if (status === 'succeeded') {
+    return {
+      label: 'Succeeded',
+      tone: 'text-green-700 dark:text-green-300 bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800',
+      icon: CheckCircle,
+      spin: false,
+    };
+  }
+  return {
+    label: 'Failed',
+    tone: 'text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800',
+    icon: XCircle,
+    spin: false,
+  };
+};
+
+const SyncTaskPanel = ({ task, tasks, isRefreshing, onRefresh, onSelectTask }) => {
+  const logEndRef = useRef(null);
+
+  useEffect(() => {
+    logEndRef.current?.scrollIntoView({ block: 'end' });
+  }, [task?.logs?.length]);
+
+  if (!task && tasks.length === 0) {
+    return (
+      <div className="rounded-md border border-dashed border-gray-200 dark:border-gray-700 p-3 text-xs text-gray-500 dark:text-gray-400">
+        Background sync logs will appear here after you start a sync task.
+      </div>
+    );
+  }
+
+  const currentTask = task || tasks[0];
+  const statusMeta = getSyncTaskStatusMeta(currentTask?.status);
+  const StatusIcon = statusMeta.icon;
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <div className="text-xs text-gray-500 dark:text-gray-400">
+          Background sync task status and logs
+        </div>
+        <Button variant="ghost" size="sm" onClick={onRefresh} disabled={isRefreshing}>
+          <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
+        </Button>
+      </div>
+
+      {currentTask && (
+        <div className="rounded-md border border-gray-200 dark:border-gray-700 overflow-hidden">
+          <div className="px-3 py-2 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <div className="text-sm font-medium text-gray-900 dark:text-white">
+                Sync {currentTask.direction === 'down' ? 'Down' : 'Up'} · {currentTask.projectName}
+              </div>
+              <div className="text-[11px] text-gray-500 dark:text-gray-400 truncate">
+                {currentTask.cwd}
+              </div>
+            </div>
+            <div className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-1 text-[11px] font-medium ${statusMeta.tone}`}>
+              <StatusIcon className={`w-3.5 h-3.5 ${statusMeta.spin ? 'animate-spin' : ''}`} />
+              {statusMeta.label}
+            </div>
+          </div>
+
+          <div className="px-3 py-2 bg-white dark:bg-gray-950">
+            {currentTask.error && (
+              <div className="mb-2 text-xs text-red-600 dark:text-red-400">{currentTask.error}</div>
+            )}
+            {currentTask.result && currentTask.status === 'succeeded' && (
+              <div className="mb-2 text-xs text-green-700 dark:text-green-300">{currentTask.result}</div>
+            )}
+            <div className="max-h-56 overflow-y-auto rounded bg-gray-50 dark:bg-gray-900 p-2">
+              <pre className="whitespace-pre-wrap break-all text-[11px] text-gray-700 dark:text-gray-200 font-mono">
+                {(currentTask.logs && currentTask.logs.length > 0) ? currentTask.logs.join('\n') : 'Waiting for logs...'}
+              </pre>
+              <div ref={logEndRef} />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {tasks.length > 1 && (
+        <div className="space-y-1">
+          <div className="text-[11px] text-gray-500 dark:text-gray-400">Recent sync tasks</div>
+          {tasks.map((item) => {
+            const itemStatus = getSyncTaskStatusMeta(item.status);
+            return (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => onSelectTask(item.id)}
+                className={`w-full rounded-md border px-2.5 py-2 text-left text-xs transition-colors ${
+                  currentTask?.id === item.id
+                    ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
+                    : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 hover:border-gray-300 dark:hover:border-gray-600'
+                }`}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-medium text-gray-900 dark:text-white">
+                    {item.direction === 'down' ? 'Sync Down' : 'Sync Up'} · {item.projectName}
+                  </span>
+                  <span className="text-gray-500 dark:text-gray-400">{itemStatus.label}</span>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+};
 
 // ─── Node Card ───
 
@@ -437,6 +567,10 @@ const ComputePanel = ({ selectedProject }) => {
   const [customCmd, setCustomCmd] = useState('');
   const [showTerminal, setShowTerminal] = useState(false);
   const [terminalKey, setTerminalKey] = useState(0);
+  const [syncTasks, setSyncTasks] = useState([]);
+  const [activeSyncTaskId, setActiveSyncTaskId] = useState(null);
+  const [activeSyncTask, setActiveSyncTask] = useState(null);
+  const [isSyncTasksRefreshing, setIsSyncTasksRefreshing] = useState(false);
 
   const loadNodes = useCallback(async () => {
     try {
@@ -454,6 +588,69 @@ const ComputePanel = ({ selectedProject }) => {
   useEffect(() => { loadNodes(); }, [loadNodes]);
 
   const activeNode = nodes.find(n => n.id === activeNodeId);
+  const runningSyncTask = syncTasks.find(task => task.status === 'queued' || task.status === 'running') || null;
+
+  const loadSyncTasks = useCallback(async ({ showLoading = false } = {}) => {
+    if (!activeNodeId) {
+      setSyncTasks([]);
+      return [];
+    }
+
+    if (showLoading) {
+      setIsSyncTasksRefreshing(true);
+    }
+
+    try {
+      const res = await api.compute.getSyncTasks(activeNodeId, 8);
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Failed to load sync tasks');
+      }
+
+      const tasks = Array.isArray(data.tasks) ? data.tasks : [];
+      setSyncTasks(tasks);
+      setActiveSyncTaskId((previousTaskId) => {
+        if (previousTaskId && tasks.some(task => task.id === previousTaskId)) {
+          return previousTaskId;
+        }
+        return tasks.find(task => task.status === 'queued' || task.status === 'running')?.id || tasks[0]?.id || null;
+      });
+      return tasks;
+    } catch (err) {
+      console.error('Failed to load sync tasks:', err);
+      return [];
+    } finally {
+      if (showLoading) {
+        setIsSyncTasksRefreshing(false);
+      }
+    }
+  }, [activeNodeId]);
+
+  const loadSyncTaskDetail = useCallback(async (taskId) => {
+    if (!activeNodeId || !taskId) {
+      setActiveSyncTask(null);
+      return null;
+    }
+
+    try {
+      const res = await api.compute.getSyncTask(activeNodeId, taskId);
+      const data = await res.json();
+      if (res.status === 404) {
+        setActiveSyncTask(null);
+        setActiveSyncTaskId(null);
+        return null;
+      }
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Failed to load sync task');
+      }
+
+      setActiveSyncTask(data.task || null);
+      return data.task || null;
+    } catch (err) {
+      console.error('Failed to load sync task:', err);
+      return null;
+    }
+  }, [activeNodeId]);
 
   const handleSelectNode = async (nodeId) => {
     try {
@@ -462,6 +659,9 @@ const ComputePanel = ({ selectedProject }) => {
       setTestResult(null);
       setSyncResult(null);
       setRunResult(null);
+      setSyncTasks([]);
+      setActiveSyncTaskId(null);
+      setActiveSyncTask(null);
       // Reconnect terminal if open
       if (showTerminal) {
         setTerminalKey(prev => prev + 1);
@@ -499,9 +699,13 @@ const ComputePanel = ({ selectedProject }) => {
     try {
       const cwd = selectedProject?.fullPath || selectedProject?.path;
       if (!cwd) throw new Error('No project selected');
-      const res = await api.compute.syncNode(activeNode.id, direction, cwd);
+      const res = await api.compute.startSyncTask(activeNode.id, direction, cwd);
       const data = await res.json();
-      setSyncResult(data);
+      if (!res.ok || !data.success) throw new Error(data.error || 'Failed to start sync task');
+      setActiveSyncTaskId(data.task?.id || null);
+      setActiveSyncTask(data.task || null);
+      setSyncResult({ success: true, message: `Sync ${direction} started in background.` });
+      await loadSyncTasks();
     } catch (err) { setSyncResult({ success: false, error: err.message }); }
     finally { setIsSyncing(false); }
   };
@@ -524,6 +728,33 @@ const ComputePanel = ({ selectedProject }) => {
     setEditNode(null);
     loadNodes();
   };
+
+  useEffect(() => {
+    setSyncTasks([]);
+    setActiveSyncTaskId(null);
+    setActiveSyncTask(null);
+    if (!activeNodeId) return;
+    void loadSyncTasks({ showLoading: true });
+  }, [activeNodeId, loadSyncTasks]);
+
+  useEffect(() => {
+    if (!activeNodeId) return;
+    const timer = setInterval(() => {
+      void loadSyncTasks();
+      if (activeSyncTaskId) {
+        void loadSyncTaskDetail(activeSyncTaskId);
+      }
+    }, SYNC_TASK_POLL_MS);
+    return () => clearInterval(timer);
+  }, [activeNodeId, activeSyncTaskId, loadSyncTaskDetail, loadSyncTasks]);
+
+  useEffect(() => {
+    if (!activeNodeId || !activeSyncTaskId) {
+      setActiveSyncTask(null);
+      return;
+    }
+    void loadSyncTaskDetail(activeSyncTaskId);
+  }, [activeNodeId, activeSyncTaskId, loadSyncTaskDetail]);
 
   return (
     <div className="h-full flex flex-col p-4 overflow-y-auto bg-gray-50 dark:bg-gray-900">
@@ -585,15 +816,32 @@ const ComputePanel = ({ selectedProject }) => {
                 <ResultBlock result={testResult} />
 
                 <div className="flex gap-2">
-                  <Button variant="outline" size="sm" className="flex-1 justify-start" onClick={() => handleSync('up')} disabled={isSyncing}>
-                    {isSyncing ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> : <Upload className="w-3.5 h-3.5 mr-1.5" />}
+                  <Button variant="outline" size="sm" className="flex-1 justify-start" onClick={() => handleSync('up')} disabled={isSyncing || !!runningSyncTask}>
+                    {(isSyncing || !!runningSyncTask) ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> : <Upload className="w-3.5 h-3.5 mr-1.5" />}
                     Sync Up
                   </Button>
-                  <Button variant="outline" size="sm" className="flex-1 justify-start" onClick={() => handleSync('down')} disabled={isSyncing}>
-                    <Download className="w-3.5 h-3.5 mr-1.5" /> Sync Down
+                  <Button variant="outline" size="sm" className="flex-1 justify-start" onClick={() => handleSync('down')} disabled={isSyncing || !!runningSyncTask}>
+                    {(isSyncing || !!runningSyncTask) ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> : <Download className="w-3.5 h-3.5 mr-1.5" />} Sync Down
                   </Button>
                 </div>
+                {runningSyncTask && (
+                  <div className="text-[11px] text-blue-600 dark:text-blue-400">
+                    A sync task is already running for this node. Logs are updating below.
+                  </div>
+                )}
                 <ResultBlock result={syncResult} />
+                <SyncTaskPanel
+                  task={activeSyncTask}
+                  tasks={syncTasks}
+                  isRefreshing={isSyncTasksRefreshing}
+                  onRefresh={() => loadSyncTasks({ showLoading: true }).then((tasks) => {
+                    const selectedTaskId = activeSyncTaskId || tasks[0]?.id;
+                    if (selectedTaskId) {
+                      void loadSyncTaskDetail(selectedTaskId);
+                    }
+                  })}
+                  onSelectTask={setActiveSyncTaskId}
+                />
 
                 <div>
                   <Label>Run Command</Label>

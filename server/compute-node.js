@@ -19,6 +19,11 @@ import {
 
 const CONFIG_DIR = path.join(os.homedir(), '.openclaw');
 const CONFIG_FILE = path.join(CONFIG_DIR, 'compute-node.json');
+const ANSI_ESCAPE_REGEX = /\x1B\[[0-?]*[ -/]*[@-~]/g;
+const SYNC_TASK_RETENTION_MS = 6 * 60 * 60 * 1000;
+const SYNC_TASK_LOG_LIMIT = 500;
+const SYNC_TASK_LIMIT_PER_NODE = 20;
+const syncTasks = new Map();
 
 // ─── ID generation ───
 
@@ -136,13 +141,32 @@ export async function isComputeConfigured() {
 // ─── Shell execution helpers ───
 
 function execLocal(command, args, options = {}) {
+  if (!Array.isArray(args)) {
+    options = args || {};
+    args = [];
+  }
+
+  const {
+    onStdout,
+    onStderr,
+    ...spawnOptions
+  } = options;
+
   return new Promise((resolve, reject) => {
-    const proc = spawn(command, args, { ...options, shell: true });
+    const proc = spawn(command, args, { ...spawnOptions, shell: true });
     let stdout = '';
     let stderr = '';
 
-    proc.stdout.on('data', (data) => { stdout += data.toString(); });
-    proc.stderr.on('data', (data) => { stderr += data.toString(); });
+    proc.stdout.on('data', (data) => {
+      const text = data.toString();
+      stdout += text;
+      onStdout?.(text);
+    });
+    proc.stderr.on('data', (data) => {
+      const text = data.toString();
+      stderr += text;
+      onStderr?.(text);
+    });
 
     proc.on('close', (code) => {
       if (code === 0) resolve(stdout.trim());
@@ -151,7 +175,7 @@ function execLocal(command, args, options = {}) {
   });
 }
 
-function execWithPassword(command, password, timeoutMs = 60000) {
+function execWithPassword(command, password, timeoutMs = null, onData) {
   return new Promise((resolve, reject) => {
     let output = '';
     let passwordSent = false;
@@ -165,19 +189,24 @@ function execWithPassword(command, password, timeoutMs = 60000) {
       env: { ...process.env, TERM: 'xterm' }
     });
 
-    const timer = setTimeout(() => {
+    const shouldUseTimeout = Number.isFinite(timeoutMs) && timeoutMs > 0;
+    const timer = shouldUseTimeout ? setTimeout(() => {
       if (!finished) {
         finished = true;
         proc.kill();
         reject(new Error('Command timed out'));
       }
-    }, timeoutMs);
+    }, timeoutMs) : null;
 
     proc.onData((data) => {
       const text = data.toString();
       output += text;
 
-      if (!passwordSent && /[Pp]assword[:\s]*$/.test(output.replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, ''))) {
+      if (passwordSent) {
+        onData?.(text);
+      }
+
+      if (!passwordSent && /[Pp]assword[:\s]*$/.test(output.replace(ANSI_ESCAPE_REGEX, ''))) {
         passwordSent = true;
         proc.write(password + '\n');
       }
@@ -186,10 +215,10 @@ function execWithPassword(command, password, timeoutMs = 60000) {
     proc.onExit(({ exitCode }) => {
       if (finished) return;
       finished = true;
-      clearTimeout(timer);
+      if (timer) clearTimeout(timer);
 
       let cleanOutput = output
-        .replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, '')
+        .replace(ANSI_ESCAPE_REGEX, '')
         .replace(/\r\n/g, '\n')
         .replace(/\r/g, '\n');
 
@@ -214,27 +243,32 @@ function execWithPassword(command, password, timeoutMs = 60000) {
 }
 
 // Execute SSH command on a specific node
-async function execSsh(nodeConfig, remoteCmd) {
+async function execSsh(nodeConfig, remoteCmd, options = {}) {
   const port = nodeConfig.port || 22;
   const sshBase = `ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 -p ${port}`;
+  const { onData, timeoutMs } = options;
 
   if (nodeConfig.keyPath) {
     const cmd = `${sshBase} -i ${nodeConfig.keyPath} ${nodeConfig.user}@${nodeConfig.host} ${JSON.stringify(remoteCmd)}`;
-    return await execLocal(cmd);
+    return await execLocal(cmd, {
+      onStdout: onData,
+      onStderr: onData,
+    });
   } else if (nodeConfig.password) {
     const cmd = `${sshBase} ${nodeConfig.user}@${nodeConfig.host} ${JSON.stringify(remoteCmd)}`;
-    return await execWithPassword(cmd, nodeConfig.password);
+    return await execWithPassword(cmd, nodeConfig.password, timeoutMs, onData);
   } else {
     throw new Error('No authentication method configured (need SSH key or password)');
   }
 }
 
 // Execute rsync on a specific node
-async function execRsync(nodeConfig, src, dst, excludes = '', optionFlags = []) {
+async function execRsync(nodeConfig, src, dst, excludes = '', optionFlags = [], options = {}) {
   const port = nodeConfig.port || 22;
   const sshCmd = nodeConfig.keyPath
     ? `ssh -o StrictHostKeyChecking=no -p ${port} -i ${nodeConfig.keyPath}`
     : `ssh -o StrictHostKeyChecking=no -p ${port}`;
+  const { onData } = options;
   const excludePatterns = Array.isArray(excludes)
     ? excludes
     : String(excludes || '')
@@ -251,9 +285,12 @@ async function execRsync(nodeConfig, src, dst, excludes = '', optionFlags = []) 
   });
 
   if (nodeConfig.keyPath) {
-    return await execLocal(cmd);
+    return await execLocal(cmd, {
+      onStdout: onData,
+      onStderr: onData,
+    });
   } else if (nodeConfig.password) {
-    return await execWithPassword(cmd, nodeConfig.password, 120000);
+    return await execWithPassword(cmd, nodeConfig.password, null, onData);
   } else {
     throw new Error('No authentication method configured');
   }
@@ -306,6 +343,205 @@ async function resolveNode(nodeId) {
   return active;
 }
 
+function trimTaskLogs(task) {
+  if (task.logs.length > SYNC_TASK_LOG_LIMIT) {
+    task.logs.splice(0, task.logs.length - SYNC_TASK_LOG_LIMIT);
+  }
+}
+
+function appendSyncTaskLog(task, chunk) {
+  const normalized = String(chunk ?? '')
+    .replace(ANSI_ESCAPE_REGEX, '')
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n');
+
+  if (!normalized) {
+    return;
+  }
+
+  task.logBuffer = `${task.logBuffer || ''}${normalized}`;
+  const parts = task.logBuffer.split('\n');
+  task.logBuffer = parts.pop() || '';
+
+  for (const line of parts) {
+    const cleaned = line.trimEnd();
+    if (!cleaned || /^[Pp]assword:\s*$/.test(cleaned)) {
+      continue;
+    }
+    task.logs.push(cleaned);
+  }
+
+  trimTaskLogs(task);
+}
+
+function flushSyncTaskLogs(task) {
+  const pending = String(task.logBuffer || '').trim();
+  if (pending && !/^[Pp]assword:\s*$/.test(pending)) {
+    task.logs.push(pending);
+    trimTaskLogs(task);
+  }
+  task.logBuffer = '';
+}
+
+function cleanupSyncTasks() {
+  const now = Date.now();
+  const grouped = new Map();
+
+  for (const task of syncTasks.values()) {
+    const createdAt = Date.parse(task.createdAt || '') || now;
+    if ((task.status === 'succeeded' || task.status === 'failed') && now - createdAt > SYNC_TASK_RETENTION_MS) {
+      syncTasks.delete(task.id);
+      continue;
+    }
+
+    const bucket = grouped.get(task.nodeId) || [];
+    bucket.push(task);
+    grouped.set(task.nodeId, bucket);
+  }
+
+  for (const tasks of grouped.values()) {
+    tasks.sort((a, b) => (Date.parse(b.createdAt || '') || 0) - (Date.parse(a.createdAt || '') || 0));
+    tasks.slice(SYNC_TASK_LIMIT_PER_NODE).forEach(task => syncTasks.delete(task.id));
+  }
+}
+
+function serializeSyncTask(task, { includeLogs = false } = {}) {
+  if (!task) return null;
+
+  return {
+    id: task.id,
+    nodeId: task.nodeId,
+    direction: task.direction,
+    cwd: task.cwd,
+    projectName: task.projectName,
+    files: Array.isArray(task.files) ? [...task.files] : [],
+    status: task.status,
+    result: task.result,
+    error: task.error,
+    createdAt: task.createdAt,
+    startedAt: task.startedAt,
+    finishedAt: task.finishedAt,
+    logCount: task.logs.length + (task.logBuffer ? 1 : 0),
+    logs: includeLogs
+      ? [
+          ...task.logs,
+          ...(task.logBuffer ? [task.logBuffer] : []),
+        ]
+      : undefined,
+  };
+}
+
+function getRunningSyncTaskForNode(nodeId) {
+  for (const task of syncTasks.values()) {
+    if (task.nodeId === nodeId && (task.status === 'queued' || task.status === 'running')) {
+      return task;
+    }
+  }
+  return null;
+}
+
+async function performSync(nodeConfig, { direction = 'up', files = [], cwd, onLog }) {
+  const projectName = getProjectName(cwd);
+  const remotePath = getRemoteProjectPath(nodeConfig.workDir || '~', projectName);
+  const log = (line) => {
+    if (line) {
+      onLog?.(line);
+    }
+  };
+
+  if (direction === 'up') {
+    log(`Preparing remote directory: ${remotePath}`);
+    await execSsh(nodeConfig, `mkdir -p -- ${shellEscapeRemotePath(remotePath)}`, { onData: log });
+    log(`Starting rsync upload for project "${projectName}"`);
+    return await execRsync(
+      nodeConfig,
+      `${cwd}/`,
+      buildRemoteProjectSource({ user: nodeConfig.user, host: nodeConfig.host, remotePath }),
+      DEFAULT_PROJECT_SYNC_EXCLUDES,
+      DEFAULT_PROJECT_SYNC_RSYNC_FLAGS,
+      { onData: log },
+    );
+  }
+
+  const hasExplicitFiles = Array.isArray(files) && files.length > 0;
+  if (!hasExplicitFiles) {
+    log(`Checking remote project path: ${remotePath}`);
+    const exists = await remotePathExists(nodeConfig, remotePath);
+    if (!exists) {
+      return `Remote project directory not found: ${remotePath}`;
+    }
+    log(`Starting rsync download for project "${projectName}"`);
+    return await execRsync(
+      nodeConfig,
+      buildRemoteProjectSource({ user: nodeConfig.user, host: nodeConfig.host, remotePath }),
+      `${cwd}/`,
+      DEFAULT_PROJECT_SYNC_DOWN_EXCLUDES,
+      DEFAULT_PROJECT_SYNC_RSYNC_FLAGS,
+      { onData: log },
+    );
+  }
+
+  log(`Resolving ${files.length} requested remote path(s)`);
+  const { existingEntries, missingEntries } = await resolveExistingRemoteSyncDownEntries(nodeConfig, {
+    user: nodeConfig.user,
+    host: nodeConfig.host,
+    remotePath,
+    files,
+  });
+
+  if (existingEntries.length === 0) {
+    const missingList = missingEntries.map(entry => entry.relativePath).join(', ');
+    throw new Error(`Remote files/directories not found: ${missingList}`);
+  }
+
+  log(`Starting rsync download for ${existingEntries.length} remote path(s)`);
+  const output = await execRsync(
+    nodeConfig,
+    existingEntries.map(entry => entry.source),
+    `${cwd}/`,
+    DEFAULT_PROJECT_SYNC_DOWN_EXCLUDES,
+    DEFAULT_PROJECT_SYNC_RSYNC_FLAGS,
+    { onData: log },
+  );
+  if (missingEntries.length === 0) return output;
+
+  const skippedMessage = `Skipped missing remote paths: ${missingEntries.map(entry => entry.relativePath).join(', ')}`;
+  log(skippedMessage);
+  return output ? `${output}\n${skippedMessage}` : skippedMessage;
+}
+
+async function runSyncTask(task) {
+  const nodeConfig = await resolveNode(task.nodeId);
+  task.status = 'running';
+  task.startedAt = new Date().toISOString();
+  appendSyncTaskLog(task, `Sync ${task.direction} started for ${task.projectName}`);
+
+  try {
+    const output = await performSync(nodeConfig, {
+      direction: task.direction,
+      files: task.files,
+      cwd: task.cwd,
+      onLog: (line) => appendSyncTaskLog(task, line),
+    });
+
+    if (output) {
+      appendSyncTaskLog(task, output);
+    }
+
+    task.status = 'succeeded';
+    task.result = output || `Sync ${task.direction} completed successfully.`;
+    task.finishedAt = new Date().toISOString();
+  } catch (error) {
+    task.status = 'failed';
+    task.error = error.message;
+    task.finishedAt = new Date().toISOString();
+    appendSyncTaskLog(task, error.message);
+  } finally {
+    flushSyncTaskLogs(task);
+    cleanupSyncTasks();
+  }
+}
+
 // ─── Main ComputeNode API ───
 
 export const ComputeNode = {
@@ -344,61 +580,64 @@ export const ComputeNode = {
   },
 
   // Sync code up/down
-  async sync({ nodeId, direction = 'up', files = [], cwd }) {
+  async sync({ nodeId, direction = 'up', files = [], cwd, onLog }) {
     const config = await resolveNode(nodeId);
+    return await performSync(config, { direction, files, cwd, onLog });
+  },
 
-    const projectName = getProjectName(cwd);
-    const remotePath = getRemoteProjectPath(config.workDir || '~', projectName);
+  async startSyncTask({ nodeId, direction = 'up', files = [], cwd }) {
+    cleanupSyncTasks();
 
-    if (direction === 'up') {
-      await execSsh(config, `mkdir -p -- ${shellEscapeRemotePath(remotePath)}`);
-      return await execRsync(
-        config,
-        `${cwd}/`,
-        buildRemoteProjectSource({ user: config.user, host: config.host, remotePath }),
-        DEFAULT_PROJECT_SYNC_EXCLUDES,
-        DEFAULT_PROJECT_SYNC_RSYNC_FLAGS,
-      );
-    } else {
-      const hasExplicitFiles = Array.isArray(files) && files.length > 0;
-      if (!hasExplicitFiles) {
-        const exists = await remotePathExists(config, remotePath);
-        if (!exists) {
-          return `Remote project directory not found: ${remotePath}`;
-        }
-        return await execRsync(
-          config,
-          buildRemoteProjectSource({ user: config.user, host: config.host, remotePath }),
-          `${cwd}/`,
-          DEFAULT_PROJECT_SYNC_DOWN_EXCLUDES,
-          DEFAULT_PROJECT_SYNC_RSYNC_FLAGS,
-        );
-      }
-
-      const { existingEntries, missingEntries } = await resolveExistingRemoteSyncDownEntries(config, {
-        user: config.user,
-        host: config.host,
-        remotePath,
-        files,
-      });
-
-      if (existingEntries.length === 0) {
-        const missingList = missingEntries.map(entry => entry.relativePath).join(', ');
-        throw new Error(`Remote files/directories not found: ${missingList}`);
-      }
-
-      const output = await execRsync(
-        config,
-        existingEntries.map(entry => entry.source),
-        `${cwd}/`,
-        DEFAULT_PROJECT_SYNC_DOWN_EXCLUDES,
-        DEFAULT_PROJECT_SYNC_RSYNC_FLAGS,
-      );
-      if (missingEntries.length === 0) return output;
-
-      const skippedMessage = `Skipped missing remote paths: ${missingEntries.map(entry => entry.relativePath).join(', ')}`;
-      return output ? `${output}\n${skippedMessage}` : skippedMessage;
+    const config = await resolveNode(nodeId);
+    const existingTask = getRunningSyncTaskForNode(config.id);
+    if (existingTask) {
+      throw new Error(`A sync task is already ${existingTask.status} for this node.`);
     }
+
+    const task = {
+      id: `sync-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`,
+      nodeId: config.id,
+      direction,
+      cwd,
+      projectName: getProjectName(cwd),
+      files: Array.isArray(files) ? files : [],
+      status: 'queued',
+      result: null,
+      error: null,
+      logs: [],
+      logBuffer: '',
+      createdAt: new Date().toISOString(),
+      startedAt: null,
+      finishedAt: null,
+    };
+
+    syncTasks.set(task.id, task);
+    cleanupSyncTasks();
+
+    void runSyncTask(task);
+
+    return serializeSyncTask(task, { includeLogs: true });
+  },
+
+  async listSyncTasks({ nodeId, limit = 10 }) {
+    const config = await resolveNode(nodeId);
+    cleanupSyncTasks();
+
+    return [...syncTasks.values()]
+      .filter(task => task.nodeId === config.id)
+      .sort((a, b) => (Date.parse(b.createdAt || '') || 0) - (Date.parse(a.createdAt || '') || 0))
+      .slice(0, limit)
+      .map(task => serializeSyncTask(task));
+  },
+
+  async getSyncTask({ nodeId, taskId }) {
+    const config = await resolveNode(nodeId);
+    cleanupSyncTasks();
+    const task = syncTasks.get(taskId);
+    if (!task || task.nodeId !== config.id) {
+      return null;
+    }
+    return serializeSyncTask(task, { includeLogs: true });
   },
 
   // Run a command on a node

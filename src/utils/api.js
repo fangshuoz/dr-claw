@@ -412,6 +412,12 @@ export const api = {
     setActive: (id) => authenticatedFetch(`/api/compute/nodes/${id}/active`, { method: 'POST' }),
     testNode: (id) => authenticatedFetch(`/api/compute/nodes/${id}/test`, { method: 'POST' }),
     syncNode: (id, direction, cwd) => authenticatedFetch(`/api/compute/nodes/${id}/sync`, { method: 'POST', body: JSON.stringify({ direction, cwd }) }),
+    startSyncTask: (id, direction, cwd, files) => authenticatedFetch(`/api/compute/nodes/${id}/sync-tasks`, {
+      method: 'POST',
+      body: JSON.stringify({ direction, cwd, files }),
+    }),
+    getSyncTasks: (id, limit = 10) => authenticatedFetch(`/api/compute/nodes/${id}/sync-tasks?limit=${encodeURIComponent(limit)}`),
+    getSyncTask: (id, taskId) => authenticatedFetch(`/api/compute/nodes/${id}/sync-tasks/${encodeURIComponent(taskId)}`),
     runOnNode: (id, command, cwd, skipSync) => authenticatedFetch(`/api/compute/nodes/${id}/run`, { method: 'POST', body: JSON.stringify({ command, cwd, skipSync }) }),
     slurmInfo: (id) => authenticatedFetch(`/api/compute/nodes/${id}/slurm/info`),
     slurmQueue: (id) => authenticatedFetch(`/api/compute/nodes/${id}/slurm/queue`),
