@@ -62,6 +62,7 @@ import base64
 import json
 import mimetypes
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -77,15 +78,22 @@ import requests
 from .core import chat as chat_mod
 from .core import conversations as conversations_mod
 from .core import daemon as daemon_mod
+from .core import openclaw_daemon as openclaw_daemon_mod
 from .core import projects as projects_mod
 from .core import settings as settings_mod
 from .core import taskmaster as taskmaster_mod
+from .core.openclaw_bridge import send_openclaw_message as _send_openclaw_via_bridge
 from .core.session import (
     SESSION_FILE,
     NotLoggedInError,
     DrClaw,
     _load_session_file,
     _save_session_file,
+)
+from .utils.openclaw_helpers import (
+    build_project_schema as _shared_build_project_schema,
+    compact_waiting_sessions as _shared_compact_waiting_sessions,
+    project_label as _shared_project_label,
 )
 from .utils.output import error, info, output, success
 
@@ -209,14 +217,7 @@ def _normalize_path(value: str) -> str:
 
 
 def _project_label(project: Dict[str, Any]) -> str:
-    return (
-        project.get("displayName")
-        or project.get("display_name")
-        or project.get("name")
-        or project.get("fullPath")
-        or project.get("path")
-        or "unknown"
-    )
+    return _shared_project_label(project)
 
 
 def _project_identity(project: Dict[str, Any]) -> str:
@@ -569,22 +570,10 @@ def _install_openclaw_skill(
 
 
 def _send_openclaw_message(message_text: str, channel: str) -> str:
-    target = channel
-    message_channel = None
-    if ":" in channel:
-        maybe_channel, maybe_target = channel.split(":", 1)
-        if maybe_channel and maybe_target:
-            message_channel = maybe_channel
-            target = maybe_target
-
-    cmd = ["openclaw", "message", "send", "--target", target, "--message", message_text]
-    if message_channel:
-        cmd.extend(["--channel", message_channel])
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-    if result.returncode != 0:
-        err_output = result.stderr.strip() or result.stdout.strip()
-        raise RuntimeError(f"openclaw exited with code {result.returncode}: {err_output}")
-    return result.stdout.strip()
+    try:
+        return _send_openclaw_via_bridge(message_text, channel)
+    except Exception as exc:
+        raise RuntimeError(str(exc)) from exc
 
 
 def _truncate_text(value: Any, max_len: int = 220) -> str:
@@ -718,21 +707,7 @@ def _build_openclaw_chat_notification(payload: Dict[str, Any], action: str, ctx:
 
 
 def _compact_waiting_sessions(sessions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    rows = []
-    for session in sessions:
-        rows.append(
-            {
-                "project": session.get("project"),
-                "project_display_name": session.get("project_display_name") or session.get("project"),
-                "provider": session.get("provider"),
-                "session_id": session.get("session_id"),
-                "summary": session.get("summary") or "",
-                "status": session.get("status") or "waiting_for_response",
-                "is_processing": bool(session.get("is_processing", True)),
-                "last_activity": session.get("last_activity") or "",
-            }
-        )
-    return rows
+    return _shared_compact_waiting_sessions(sessions)
 
 
 def _build_artifact_brief(data: Dict[str, Any]) -> Dict[str, Any]:
@@ -882,6 +857,187 @@ def _build_portfolio_digest(items: List[Dict[str, Any]], waiting_rows: List[Dict
             "high_priority_projects": sum(1 for row in recommendations if row.get("priority") == "high"),
             "medium_priority_projects": sum(1 for row in recommendations if row.get("priority") == "medium"),
         },
+    }
+
+
+def _clean_text(value: Any) -> str:
+    return str(value or "").strip()
+
+
+_BLOCKER_RE = re.compile(r"\b(blocked|error|failed)\b", re.IGNORECASE)
+_COMPLETION_RE = re.compile(r"\b(done|completed|finished)\b", re.IGNORECASE)
+
+
+def _infer_reply_kind(reply: str) -> str:
+    text = _clean_text(reply)
+    if not text:
+        return "empty"
+    if any(token in text for token in ["?", "？", "请确认", "请选择", "需要你", "请决定"]):
+        return "question"
+    if _BLOCKER_RE.search(text) or any(t in text for t in ["阻塞", "失败", "报错"]):
+        return "blocker"
+    if _COMPLETION_RE.search(text) or any(t in text for t in ["完成", "已完成"]):
+        return "completion"
+    return "update"
+
+
+def _extract_bullets(text: str, limit: int = 3) -> List[str]:
+    rows: List[str] = []
+    for line in str(text or "").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        if line.startswith(("- ", "* ", "• ")):
+            rows.append(line[2:].strip())
+        elif len(rows) == 0:
+            rows.append(line)
+        if len(rows) >= limit:
+            break
+    return rows
+
+
+def _build_mobile_actions(project_name: str, session_id: Optional[str], provider: Optional[str], reply_kind: str) -> List[Dict[str, Any]]:
+    project_ref = project_name or ""
+    actions: List[Dict[str, Any]] = []
+    if session_id:
+        actions.append(
+            {
+                "id": "reply",
+                "label": "Reply",
+                "kind": "command",
+                "command": f'{_PRIMARY_CLI_NAME} --json chat reply --project "{project_ref}" --session {session_id} --provider {provider or "claude"} -m "<message>"',
+            }
+        )
+        actions.append(
+            {
+                "id": "resume",
+                "label": "Resume",
+                "kind": "command",
+                "command": f'{_PRIMARY_CLI_NAME} --json workflow resume --project "{project_ref}" --session {session_id} --provider {provider or "claude"}',
+            }
+        )
+    if reply_kind == "blocker":
+        actions.append(
+            {
+                "id": "status",
+                "label": "Check Status",
+                "kind": "command",
+                "command": f'{_PRIMARY_CLI_NAME} --json workflow status --project "{project_ref}"',
+            }
+        )
+    return actions
+
+
+def _build_openclaw_turn_schema(
+    *,
+    project: Dict[str, Any],
+    provider: str,
+    session_id: str,
+    reply: str,
+    action: str,
+    waiting_rows: Optional[List[Dict[str, Any]]] = None,
+) -> Dict[str, Any]:
+    clean_reply = _clean_text(reply)
+    reply_kind = _infer_reply_kind(clean_reply)
+    waiting = waiting_rows or []
+    decision_needed = reply_kind in {"question", "blocker"} or any(not row.get("is_processing", True) for row in waiting)
+    summary = _extract_bullets(clean_reply, limit=3)
+    project_name = project.get("name") or project.get("fullPath") or project.get("path") or ""
+    display_name = _project_label(project)
+    schema = {
+        "schema_version": "openclaw.turn.v1",
+        "kind": "session_turn",
+        "project": {
+            "ref": project_name,
+            "display_name": display_name,
+            "path": project.get("fullPath") or project.get("path") or "",
+        },
+        "session": {
+            "id": session_id or "",
+            "provider": provider or "claude",
+            "state": "processing" if waiting else "idle",
+        },
+        "turn": {
+            "action": action,
+            "reply_text": clean_reply,
+            "reply_kind": reply_kind,
+            "summary": summary,
+        },
+        "decision": {
+            "needed": decision_needed,
+            "reason": "assistant_requested_input" if reply_kind == "question" else ("blocker_detected" if reply_kind == "blocker" else None),
+        },
+        "next_actions": _build_mobile_actions(project_name, session_id, provider, reply_kind),
+        "waiting_sessions": _compact_waiting_sessions(waiting),
+    }
+    return schema
+
+
+def _build_openclaw_project_schema(payload: Dict[str, Any]) -> Dict[str, Any]:
+    project_ref = payload.get("project") or payload.get("project_path") or ""
+    return _shared_build_project_schema(
+        payload,
+        cli_name=_PRIMARY_CLI_NAME,
+        waiting_sessions=_compact_waiting_sessions(payload.get("waiting") or []),
+        extra_actions=[
+            {
+                "id": "report",
+                "label": "Push Report",
+                "kind": "command",
+                "command": f'{_PRIMARY_CLI_NAME} --json openclaw report --project "{project_ref}" --dry-run',
+            },
+        ],
+    )
+
+
+def _build_openclaw_portfolio_schema(payload: Dict[str, Any]) -> Dict[str, Any]:
+    recommendations = payload.get("recommendations") or []
+    projects = payload.get("projects") or []
+    focus = recommendations[:5]
+    return {
+        "schema_version": "openclaw.portfolio.v1",
+        "kind": "portfolio_digest",
+        "summary": payload.get("summary") or {},
+        "projects": projects,
+        "focus": focus,
+        "decision": {
+            "needed": any(row.get("priority") == "high" for row in focus),
+            "reason": "high_priority_projects_present" if any(row.get("priority") == "high" for row in focus) else None,
+        },
+        "next_actions": [
+            {
+                "id": "inbox",
+                "label": "Check Inbox",
+                "kind": "command",
+                "command": f"{_PRIMARY_CLI_NAME} --json chat waiting",
+            }
+        ],
+    }
+
+
+def _build_openclaw_event_schema(event: Dict[str, Any], portfolio_event: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    event_type = str(event.get("type") or "unknown")
+    mapped_kind = "info"
+    if event_type == "claude-permission-request":
+        mapped_kind = "human_decision_needed"
+    elif event_type in {"taskmaster-project-updated", "taskmaster-tasks-updated", "projects_updated"}:
+        mapped_kind = "project_updated"
+    elif event_type == "session-aborted":
+        mapped_kind = "session_aborted"
+
+    return {
+        "schema_version": "openclaw.event.v1",
+        "kind": "event",
+        "event": {
+            "type": event_type,
+            "mapped_kind": mapped_kind,
+            "project": event.get("project"),
+            "provider": event.get("provider"),
+            "session_id": event.get("session_id"),
+            "timestamp": event.get("timestamp"),
+            "details": event,
+        },
+        "portfolio_event": portfolio_event,
     }
 
 
@@ -1140,6 +1296,82 @@ def vibelab_cli():
     # Print warning to stderr as well since DeprecationWarning is often filtered
     print("Warning: 'vibelab' command is deprecated; use 'drclaw' instead.", file=sys.stderr)
     cli()
+
+
+@cli.group("openclaw-watch")
+def openclaw_watch() -> None:
+    """Background OpenClaw watcher daemon management."""
+
+
+@openclaw_watch.command("on")
+@click.option("--to", "channel", default=None, metavar="CHANNEL", help="Destination channel. Falls back to configured default channel.")
+@click.option("--interval", default=30, show_default=True, type=int, metavar="SECONDS", help="Polling interval for portfolio checks.")
+@click.option("--drclaw-bin", default=None, metavar="PATH", help="CLI binary used by the watcher subprocess.")
+@pass_context
+def openclaw_watch_on(ctx: Context, channel: Optional[str], interval: int, drclaw_bin: Optional[str]) -> None:
+    """Start the OpenClaw watcher daemon."""
+    try:
+        resolved_channel = _resolve_push_channel(channel)
+        if not resolved_channel:
+            raise ValueError("No channel specified. Use --to <channel> or run `drclaw openclaw configure --push-channel <channel>` first.")
+        payload = openclaw_daemon_mod.watcher_start(
+            channel=resolved_channel,
+            interval=interval,
+            drclaw_bin=drclaw_bin or _resolve_current_drclaw_bin(),
+            base_url=ctx.client.get_base_url(),
+        )
+        if ctx.json_mode:
+            output(payload, json_mode=True)
+        else:
+            success(f"OpenClaw watcher started (PID {payload['pid']}).", json_mode=False)
+            info(f"  log   : {payload['log_file']}")
+            info(f"  state : {payload['state_file']}")
+            info(f"  every : {payload['interval']}s")
+            info(f"  to    : {resolved_channel}")
+    except Exception as exc:
+        _handle_error(exc, ctx.json_mode)
+
+
+@openclaw_watch.command("off")
+@pass_context
+def openclaw_watch_off(ctx: Context) -> None:
+    """Stop the OpenClaw watcher daemon."""
+    try:
+        payload = openclaw_daemon_mod.watcher_stop()
+        if ctx.json_mode:
+            output(payload, json_mode=True)
+        elif payload.get("stopped"):
+            success(payload["message"], json_mode=False)
+        else:
+            info(payload["message"])
+    except Exception as exc:
+        _handle_error(exc, ctx.json_mode)
+
+
+@openclaw_watch.command("status")
+@click.option("--logs", "show_logs", is_flag=True, default=False, help="Print the last 20 lines of the watcher log.")
+@pass_context
+def openclaw_watch_status(ctx: Context, show_logs: bool) -> None:
+    """Show watcher daemon status."""
+    try:
+        payload = openclaw_daemon_mod.watcher_status()
+        if ctx.json_mode:
+            output(payload, json_mode=True)
+            return
+        state = "RUNNING" if payload.get("running") else "STOPPED"
+        state_text = click.style(state, fg="green" if payload.get("running") else "red", bold=True)
+        click.echo(f"  status : {state_text}")
+        if payload.get("pid"):
+            click.echo(f"  pid    : {payload['pid']}")
+        click.echo(f"  logs   : {payload['log_file']}")
+        click.echo(f"  state  : {payload['state_file']}")
+        if payload.get("state", {}).get("last_run_at"):
+            click.echo(f"  last   : {payload['state']['last_run_at']}")
+        if show_logs and payload.get("log_tail"):
+            click.echo("\n--- last 20 log lines ---")
+            click.echo(payload["log_tail"])
+    except Exception as exc:
+        _handle_error(exc, ctx.json_mode)
 
 
 @cli.group()
@@ -1654,6 +1886,7 @@ def workflow_status(ctx: Context, project_ref: str, force_json: bool) -> None:
         if force_json:
             ctx.json_mode = True
         payload = _collect_project_digest(ctx, project_ref)
+        payload["openclaw"] = _build_openclaw_project_schema(payload)
         output(payload, json_mode=ctx.json_mode, title=f"Workflow Status: {payload.get('project_display_name')}")
     except Exception as exc:
         _handle_error(exc, ctx.json_mode)
@@ -1717,6 +1950,23 @@ def workflow_continue(
             "session_id": result.get("session_id") or session_id,
             "reply": result.get("reply", ""),
         }
+        waiting_after = chat_mod.get_waiting_sessions_compact(ctx.client)
+        waiting_for_session = [
+            row for row in waiting_after
+            if row.get("session_id") == payload["session_id"]
+            and (
+                row.get("project") == project.get("name")
+                or row.get("project_path") == project_path
+            )
+        ]
+        payload["openclaw"] = _build_openclaw_turn_schema(
+            project=project,
+            provider=payload["provider"],
+            session_id=payload["session_id"],
+            reply=payload["reply"],
+            action="continue",
+            waiting_rows=waiting_for_session,
+        )
         payload["openclaw_notification"] = _maybe_send_openclaw_chat_notification(
             ctx,
             payload,
@@ -1818,7 +2068,7 @@ def workflow_resume(
         if not normalized_provider:
             normalized_provider = _resolve_session_provider(ctx.client, project, session_id)
         
-        images = _process_attachments(attachments) if attachments else None
+        processed_attachments = _process_attachments(attachments) if attachments else None
         project_path = project.get("fullPath") or project.get("path") or project_ref
         result = chat_mod.send_message(
             ctx.client,
@@ -1828,16 +2078,34 @@ def workflow_resume(
             session_id=session_id,
             timeout=timeout,
             permission_mode="bypassPermissions" if bypass_permissions else None,
-            attachments=images,
+            attachments=processed_attachments,
         )
         payload = {
             "action": "resume",
             "project": project.get("name") or project.get("fullPath") or project.get("path"),
+            "project_path": result.get("project_path"),
             "project_display_name": _project_label(project),
             "provider": result.get("provider", normalized_provider),
             "session_id": result.get("session_id") or session_id,
             "reply": result.get("reply", ""),
         }
+        waiting_after = chat_mod.get_waiting_sessions_compact(ctx.client)
+        waiting_for_session = [
+            row for row in waiting_after
+            if row.get("session_id") == payload["session_id"]
+            and (
+                row.get("project") == project.get("name")
+                or row.get("project_path") == project_path
+            )
+        ]
+        payload["openclaw"] = _build_openclaw_turn_schema(
+            project=project,
+            provider=payload["provider"],
+            session_id=payload["session_id"],
+            reply=payload["reply"],
+            action="resume",
+            waiting_rows=waiting_for_session,
+        )
         output(payload, json_mode=ctx.json_mode, title=f"Workflow Resume: {_project_label(project)}")
     except Exception as exc:
         _handle_error(exc, ctx.json_mode)
@@ -2101,6 +2369,15 @@ def chat_send(
             model=model,
             attachments=processed_attachments,
         )
+        waiting_after = chat_mod.get_waiting_sessions_compact(ctx.client)
+        waiting_for_session = [
+            row for row in waiting_after
+            if row.get("session_id") == (result.get("session_id") or session_id)
+            and (
+                row.get("project") == project.get("name")
+                or row.get("project_path") == project_path
+            )
+        ]
         payload = {
             "project": project.get("name") or project.get("fullPath") or project.get("path"),
             "project_display_name": _project_label(project),
@@ -2109,6 +2386,14 @@ def chat_send(
             "session_id": result.get("session_id"),
             "reply": result.get("reply", ""),
         }
+        payload["openclaw"] = _build_openclaw_turn_schema(
+            project=project,
+            provider=payload["provider"],
+            session_id=payload.get("session_id") or "",
+            reply=payload["reply"],
+            action="send",
+            waiting_rows=waiting_for_session,
+        )
         payload["openclaw_notification"] = _maybe_send_openclaw_chat_notification(
             ctx,
             payload,
@@ -2179,6 +2464,15 @@ def chat_reply(
             model=model,
             attachments=processed_attachments,
         )
+        waiting_after = chat_mod.get_waiting_sessions_compact(ctx.client)
+        waiting_for_session = [
+            row for row in waiting_after
+            if row.get("session_id") == (result.get("session_id") or session_id)
+            and (
+                row.get("project") == project.get("name")
+                or row.get("project_path") == project_path
+            )
+        ]
         payload = {
             "project": project.get("name") or project.get("fullPath") or project.get("path"),
             "project_display_name": _project_label(project),
@@ -2187,6 +2481,14 @@ def chat_reply(
             "session_id": result.get("session_id") or session_id,
             "reply": result.get("reply", ""),
         }
+        payload["openclaw"] = _build_openclaw_turn_schema(
+            project=project,
+            provider=payload["provider"],
+            session_id=payload.get("session_id") or "",
+            reply=payload["reply"],
+            action="reply",
+            waiting_rows=waiting_for_session,
+        )
         payload["openclaw_notification"] = _maybe_send_openclaw_chat_notification(
             ctx,
             payload,
@@ -2372,6 +2674,16 @@ def chat_watch(
 
         def handle_event(event: Dict[str, Any]) -> None:
             events.append(event)
+            portfolio_event = None
+            if event.get("type") in {"taskmaster-project-updated", "taskmaster-tasks-updated", "projects_updated", "claude-permission-request", "session-aborted"}:
+                project_ref = event.get("project")
+                if project_ref:
+                    try:
+                        digest = _collect_project_digest(ctx, project_ref)
+                        portfolio_event = _build_openclaw_project_schema(digest)
+                    except Exception:
+                        portfolio_event = None
+            event["openclaw"] = _build_openclaw_event_schema(event, portfolio_event=portfolio_event)
             if notify_openclaw or notify_channel:
                 payload = {
                     "project_display_name": event.get("project") or "unknown",
@@ -2440,6 +2752,7 @@ def digest_project(ctx: Context, project_ref: str, force_json: bool, push_opencl
         if force_json:
             ctx.json_mode = True
         payload = _collect_project_digest(ctx, project_ref)
+        payload["openclaw"] = _build_openclaw_project_schema(payload)
         if push_openclaw or channel:
             resolved_channel = _resolve_push_channel(channel)
             if not resolved_channel:
@@ -2478,6 +2791,7 @@ def digest_portfolio(ctx: Context, force_json: bool, push_openclaw: bool, channe
             except Exception:
                 continue
         payload = _build_portfolio_digest(items, waiting_rows, lang=ctx.lang)
+        payload["openclaw"] = _build_openclaw_portfolio_schema(payload)
         if push_openclaw or channel:
             resolved_channel = _resolve_push_channel(channel)
             if not resolved_channel:
@@ -2515,6 +2829,15 @@ def digest_daily(ctx: Context, force_json: bool, push_openclaw: bool, channel: O
             except Exception:
                 continue
         payload = _build_daily_digest(items)
+        payload["openclaw"] = {
+            "schema_version": "openclaw.daily.v1",
+            "kind": "daily_digest",
+            "summary": payload.get("summary") or {},
+            "projects": [
+                _build_openclaw_project_schema(item)
+                for item in items
+            ],
+        }
         if push_openclaw or channel:
             resolved_channel = _resolve_push_channel(channel)
             if not resolved_channel:
@@ -2673,6 +2996,19 @@ def openclaw_report(
             "report": report_text,
             "summary": summary,
             "openclaw_output": cmd_output,
+        }
+        payload["openclaw"] = {
+            "schema_version": "openclaw.report.v1",
+            "kind": "project_report",
+            "project": {
+                "ref": project_name,
+                "display_name": _project_label(project),
+                "path": project.get("fullPath") or project.get("path") or "",
+            },
+            "report_text": report_text,
+            "summary": summary,
+            "channel": resolved_channel,
+            "sent": sent,
         }
         if ctx.json_mode:
             output(payload, json_mode=True)

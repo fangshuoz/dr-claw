@@ -28,6 +28,20 @@ import { buildCodexRealtimeTokenBudget } from './utils/sessionTokenUsage.js';
 const activeCodexSessions = new Map();
 let hasLoggedCodexCliSource = false;
 
+function moveActiveCodexSession(oldSessionId, newSessionId) {
+  if (!oldSessionId || !newSessionId || oldSessionId === newSessionId) {
+    return;
+  }
+
+  const session = activeCodexSessions.get(oldSessionId);
+  if (!session) {
+    return;
+  }
+
+  activeCodexSessions.set(newSessionId, session);
+  activeCodexSessions.delete(oldSessionId);
+}
+
 /**
  * Check if an agent_message item contains system prompt / instruction content
  * that should be collapsed rather than displayed as a normal message.
@@ -355,7 +369,8 @@ export async function queryCodex(command, options = {}, ws) {
 
   let codex;
   let thread;
-  let currentSessionId = sessionId;
+  let currentSessionId = sessionId || null;
+  let provisionalSessionId = null;
   const abortController = new AbortController();
   let tempImagePaths = [];
   let tempDir = null;
@@ -411,11 +426,8 @@ export async function queryCodex(command, options = {}, ws) {
       thread = codex.startThread(threadOptions);
     }
 
-    // Get the thread ID
-    currentSessionId = thread.id || sessionId || `codex-${Date.now()}`;
-
-    // Track the session
-    activeCodexSessions.set(currentSessionId, {
+    provisionalSessionId = currentSessionId || `codex-${Date.now()}`;
+    activeCodexSessions.set(provisionalSessionId, {
       thread,
       codex,
       status: 'running',
@@ -423,23 +435,38 @@ export async function queryCodex(command, options = {}, ws) {
       startTime: Date.now()
     });
 
-    // Send session created event
-    if (workingDirectory) {
-      recordIndexedSession({
+    const publishSessionId = (resolvedSessionId) => {
+      if (!resolvedSessionId || resolvedSessionId === currentSessionId) {
+        return;
+      }
+
+      const previousSessionId = currentSessionId || provisionalSessionId;
+      currentSessionId = resolvedSessionId;
+
+      if (previousSessionId && previousSessionId !== currentSessionId) {
+        moveActiveCodexSession(previousSessionId, currentSessionId);
+      }
+
+      if (workingDirectory) {
+        recordIndexedSession({
+          sessionId: currentSessionId,
+          provider: 'codex',
+          projectPath: workingDirectory,
+          sessionMode: sessionMode || 'research',
+          stageTagKeys,
+          tagSource: stageTagSource,
+        });
+      }
+
+      sendMessage(ws, {
+        type: 'session-created',
         sessionId: currentSessionId,
         provider: 'codex',
-        projectPath: workingDirectory,
-        sessionMode: sessionMode || 'research',
-        stageTagKeys,
-        tagSource: stageTagSource,
+        mode: sessionMode || 'research'
       });
-    }
-    sendMessage(ws, {
-      type: 'session-created',
-      sessionId: currentSessionId,
-      provider: 'codex',
-      mode: sessionMode || 'research'
-    });
+    };
+
+    publishSessionId(thread.id || sessionId || null);
 
     const preparedInput = await prepareCodexInput(command, images, workingDirectory);
     tempImagePaths = preparedInput.tempImagePaths;
@@ -458,8 +485,13 @@ export async function queryCodex(command, options = {}, ws) {
     const sentItems = new Map(); // itemId -> lifecycle stage
 
     for await (const event of streamedTurn.events) {
+      if (event.type === 'thread.started' && event.id) {
+        publishSessionId(event.id);
+      }
+
       // Check if session was aborted
-      const session = activeCodexSessions.get(currentSessionId);
+      const activeLookupId = currentSessionId || provisionalSessionId;
+      const session = activeCodexSessions.get(activeLookupId);
       if (!session || session.status === 'aborted') {
         break;
       }
@@ -519,7 +551,8 @@ export async function queryCodex(command, options = {}, ws) {
       }
 
       // Add startTime for frontend timer synchronization
-      const activeSession = currentSessionId ? activeCodexSessions.get(currentSessionId) : null;
+      const activeSessionId = currentSessionId || provisionalSessionId;
+      const activeSession = activeSessionId ? activeCodexSessions.get(activeSessionId) : null;
       if (Number.isFinite(activeSession?.startTime)) {
         transformed.startTime = activeSession.startTime;
       }
@@ -558,7 +591,7 @@ export async function queryCodex(command, options = {}, ws) {
       }
     }
 
-    const actualSessionId = thread.id || currentSessionId;
+    const actualSessionId = thread.id || currentSessionId || provisionalSessionId;
 
     // Send completion event immediately so the UI can settle
     sendMessage(ws, {
@@ -584,7 +617,8 @@ export async function queryCodex(command, options = {}, ws) {
     }
 
   } catch (error) {
-    const session = currentSessionId ? activeCodexSessions.get(currentSessionId) : null;
+    const lookupSessionId = currentSessionId || provisionalSessionId;
+    const session = lookupSessionId ? activeCodexSessions.get(lookupSessionId) : null;
     const wasAborted =
       session?.status === 'aborted' ||
       error?.name === 'AbortError' ||
@@ -607,8 +641,9 @@ export async function queryCodex(command, options = {}, ws) {
     await cleanupCodexTempFiles(tempImagePaths, tempDir);
 
     // Update session status
-    if (currentSessionId) {
-      const session = activeCodexSessions.get(currentSessionId);
+    const finalSessionId = currentSessionId || provisionalSessionId;
+    if (finalSessionId) {
+      const session = activeCodexSessions.get(finalSessionId);
       if (session) {
         session.status = session.status === 'aborted' ? 'aborted' : 'completed';
       }

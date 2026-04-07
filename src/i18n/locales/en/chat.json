@@ -327,6 +327,7 @@
     "description": "Files, tasks, and outputs actually observed in this session trace.",
     "codexNotice": "Codex visibility is partial and depends on the tool events currently exposed by the runtime.",
     "traceError": "Failed to load the full session trace. Showing live in-memory messages only.",
+    "fileTreeError": "Failed to load project files.",
     "stats": {
       "mode": "Mode",
       "provider": "Provider",
@@ -334,7 +335,8 @@
       "unreadOutputs": "Unread Outputs"
     },
     "sections": {
-      "injectedContext": "Injected Context",
+      "injectedContext": "Referenced Context",
+      "skillsSubheader": "Skills",
       "taskContext": "Task Context",
       "reviewQueue": "Review Queue",
       "fileReview": "File Review"
@@ -358,8 +360,15 @@
     "empty": {
       "injectedContext": "No file or directory context has been observed yet.",
       "taskContext": "No task or todo context captured yet.",
-      "reviewQueue": "No generated files found for this session yet."
+      "reviewQueue": "No generated files found for this session yet.",
+      "files": "No files found"
     },
+    "sidebarTabs": {
+      "context": "Context",
+      "research": "Research",
+      "files": "Files"
+    },
+    "showLess": "Show less",
     "preview": {
       "titleFallback": "Preview",
       "selectFile": "Select a file to preview",
@@ -367,7 +376,9 @@
       "loading": "Loading preview...",
       "loadError": "Failed to load preview. {{error}}",
       "selectToReview": "Select a file to review",
-      "unreadHint": "Outputs stay unread until you open them from the review queue."
+      "unreadHint": "Outputs stay unread until you open them from the review queue.",
+      "closePreview": "Close preview",
+      "openInEditor": "Open in Editor"
     }
   },
   "shell": {

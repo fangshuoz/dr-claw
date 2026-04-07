@@ -4,6 +4,25 @@ import { IS_PLATFORM } from '../constants/config.js';
 
 // Get JWT secret from environment or use default (for development)
 const JWT_SECRET = process.env.JWT_SECRET || 'claude-ui-dev-secret-change-in-production';
+if (!process.env.JWT_SECRET && process.env.NODE_ENV === 'production') {
+  console.warn(
+    '[SECURITY] JWT_SECRET is not set — using the default development secret. '
+    + 'Tokens signed with this known-public secret are trivially forgeable. '
+    + 'Set JWT_SECRET in your environment before deploying to production.'
+  );
+}
+
+// Token lifetime (default: 30 days). Set JWT_EXPIRY to override, e.g. "24h", "30d".
+const JWT_EXPIRY = process.env.JWT_EXPIRY || '30d';
+// Validate JWT_EXPIRY at startup to fail fast on misconfiguration
+try {
+  jwt.sign({ _validate: true }, 'test', { expiresIn: JWT_EXPIRY });
+} catch {
+  throw new Error(
+    `Invalid JWT_EXPIRY value: "${JWT_EXPIRY}". `
+    + 'Use formats like "1h", "7d", "30d", or a number of seconds.'
+  );
+}
 
 // Optional API key middleware
 const validateApiKey = (req, res, next) => {
@@ -54,15 +73,15 @@ const authenticateToken = async (req, res, next) => {
   }
 };
 
-// Generate JWT token (never expires)
+// Generate JWT token with configurable expiry (default: 7 days)
 const generateToken = (user) => {
   return jwt.sign(
-    { 
-      userId: user.id, 
-      username: user.username 
+    {
+      userId: user.id,
+      username: user.username
     },
-    JWT_SECRET
-    // No expiration - token lasts forever
+    JWT_SECRET,
+    { expiresIn: JWT_EXPIRY }
   );
 };
 

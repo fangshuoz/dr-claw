@@ -5,15 +5,19 @@
 </div>
 
 <p align="center">
-<a href="https://openlair.github.io/dr-claw">
-<img src="https://img.shields.io/badge/%F0%9F%8C%90-%E4%B8%BB%E9%A1%B5-CB2B3E?style=for-the-badge" alt="主页" />
-</a>
 <a href="https://github.com/OpenLAIR/dr-claw">
-<img src="https://img.shields.io/badge/%F0%9F%A6%9E-Dr.%20Claw-CB2B3E?style=for-the-badge" alt="Dr. Claw" />
+<img src="https://img.shields.io/badge/%F0%9F%A6%9E-Dr.%20Claw-7C3AED?style=for-the-badge" alt="Dr. Claw" />
+</a>
+<a href="https://openlair.github.io/dr-claw">
+<img src="https://img.shields.io/badge/%F0%9F%8C%90-%E4%B8%BB%E9%A1%B5-2563EB?style=for-the-badge" alt="主页" />
+</a>
+<a href="https://www.npmjs.com/package/dr-claw">
+<img src="https://img.shields.io/npm/v/dr-claw?style=for-the-badge&logo=npm&color=CB3837" alt="npm version" />
 </a>
 <a href="https://github.com/OpenLAIR/dr-claw/blob/main/LICENSE">
 <img src="https://img.shields.io/badge/License-GPL--3.0%20%2B%20AGPL--3.0-blue?style=for-the-badge" alt="License: GPL-3.0 + AGPL-3.0" />
 </a>
+<br/>
 <a href="https://join.slack.com/t/vibe-lab-group/shared_invite/zt-3r4bkcx5t-iGyRMI~r09zt7p_ND2eP9A">
 <img src="https://img.shields.io/badge/Join-Slack-4A154B?style=for-the-badge&logo=slack" alt="Join Slack" />
 </a>
@@ -22,6 +26,9 @@
 </a>
 <a href="./public/wechat-group-qr.jpg">
 <img src="https://img.shields.io/badge/%E5%8A%A0%E5%85%A5-%E5%BE%AE%E4%BF%A1%E7%BE%A4-07C160?style=for-the-badge&logo=wechat&logoColor=white" alt="加入微信群" />
+</a>
+<a href="https://github.com/OpenLAIR/dr-claw-plugin-cc">
+<img src="https://img.shields.io/badge/Claude%20Code-Plugin-7C3AED?style=for-the-badge&logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJ3aGl0ZSI+PHBhdGggZD0iTTEyIDJMMiAyMmgyMEwxMiAyeiIvPjwvc3ZnPg==" alt="Claude Code Plugin" />
 </a>
 </p>
 
@@ -32,13 +39,14 @@
 ## 目录
 
 - [Overview](#overview)
+- [最新动态](#最新动态)
 - [亮点](#亮点)
 - [快速开始](#快速开始)
 - [配置说明](#配置说明)
-- [OpenRouter](#openrouter)
 - [接入 OpenClaw](#接入-openclaw)
 - [Research Lab - 快速示例](#research-lab-quick-example)
 - [使用指南](#使用指南)
+- [Claude Code 插件](#claude-code-插件)
 - [补充说明](#补充说明)
 - [贡献](#贡献)
 - [FAQ](./docs/faq.zh-CN.md)
@@ -66,6 +74,33 @@ Dr. Claw 是一个面向不同研究方向的通用 AI 研究助手，帮助研�
 </p>
 
 **纯手工太慢，完全交给 AI 又太平庸，Vibe Researching 才是新的范式。** Dr. Claw 以 **Agentic Execution** 放大你的 **Research Taste**，让你既能更快推进、更大胆探索，也始终守住科研严谨性的底线。
+
+</details>
+
+## 最新动态
+
+- 🖥️ **桌面应用 & npx** `2026-04-06` — Dr. Claw 现已支持原生桌面应用！从 [GitHub Releases](https://github.com/OpenLAIR/dr-claw/releases) 下载 `.dmg` / `.exe`，或运行 `npx dr-claw` 零配置一键启动。
+- 🗂️ **多标签侧边栏** `2026-04-06` — Research Lab 和文件浏览器合并为右侧可切换标签页，所有信息一目了然。
+- 📂 **文件预览浮层** `2026-04-06` — 内联预览项目文件，配合药丸切换和侧边浏览器，告别频繁切换窗口！
+- 💬 **终端聊天** `2026-04-06` — 终端爱好者的福音！运行 `dr-claw chat`，用任意 OpenRouter 模型开启完整 Agent 会话，无需浏览器。
+- 🎛️ **推理强度控制** `2026-03-30` — 精调 AI 思考深度！Codex 推理强度和 Gemini 思维力度选择器现已内置于 Chat 中。
+- 🖥️ **本地 GPU 检测** `2026-03-30` — Dr. Claw 自动检测本地 GPU 资源，让你的硬件随时待命。
+- 🌐 **OpenRouter 接入** `2026-03-28` — 一个 API Key 解锁数百种模型（GPT-5、Claude、Gemini、DeepSeek、Llama、Kimi 等），全球模型尽在掌握！
+- 🔄 **会话恢复** `2026-03-26` — 会话中途出错？别慌——点击重试按钮，从断点处继续。
+
+<details>
+<summary><strong>更早的更新</strong></summary>
+
+- 📡 **端口自动回退** `2026-03-26` — 默认端口被占用？Dr. Claw 自动寻找可用端口，省心省力。
+- 🏷️ **智能 Prompt 加载** `2026-03-26` — 任务自动加载至 Chat 并显示徽章下拉菜单，点击即可开始！
+- 🏷️ **会话阶段标签** `2026-03-26` — 会话自动标记研究阶段，每段对话处于什么状态一目了然。
+- ✍️ **审稿回复技能** `2026-03-24` — 全新 Rebuttal 技能，将审稿意见转化为高质量的回复稿。
+- 🧑‍💻 **多会话支持** `2026-03-21` — 并行运行多个会话并自动命名，多项目同时推进不在话下！
+- 🗑️ **回收站** `2026-03-21` — 误删了项目？别担心——回收站里随时可以恢复。
+- 🤖 **Dr. Claw CLI & OpenClaw** `2026-03-21` — 完整的命令行控制加 OpenClaw 集成，支持移动端语音驱动的研究管理。
+- 📚 **参考文献库** `2026-03-20` — 精简的文献选择器加本地 Zotero 支持，文献管理井井有条。
+- 🔀 **Git 版本控制** `2026-03-20` — 暂存、提交、差异对比、切换分支，全部在应用内完成，内置版本控制。
+- 📰 **资讯看板** `2026-03-14` — 在工作区内实时追踪研究相关动态，热门论文再也不会错过！
 
 </details>
 
@@ -125,6 +160,8 @@ Dr. Claw 是一个面向不同研究方向的通用 AI 研究助手，帮助研�
 
 ## 快速开始
 
+> **桌面应用（Beta）：** 想跳过以下安装步骤？可以直接从 [GitHub Releases](https://github.com/OpenLAIR/dr-claw/releases) 下载最新的 `.dmg`（macOS）或 `.exe`（Windows）安装包运行。桌面应用目前为 Beta 版本 — 如需更稳定的体验，请按照下方完整安装步骤操作。
+
 ### 前置要求
 
 - [Node.js](https://nodejs.org/) v20 或更高版本（**推荐 v22 LTS**，见 `.nvmrc`）
@@ -132,12 +169,29 @@ Dr. Claw 是一个面向不同研究方向的通用 AI 研究助手，帮助研�
   - [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code)
   - [Gemini CLI](https://geminicli.com/docs/get-started/installation/)
   - [Codex CLI](https://developers.openai.com/codex/cli/)
-- 国内用户可以配置 [OpenRouter](#openrouter)
+- 国内用户可以配置 [OpenRouter](#配置说明)
 - 部分系统需要原生构建工具来安装 `node-pty`、`better-sqlite3` 等依赖；如果 `npm install` 失败，请查看 [FAQ](docs/faq.zh-CN.md)。
 
 Cursor Agent 支持正在开发中，即将推出。
 
-### 安装
+### 方式一：npx 一键启动（推荐）
+
+无需克隆仓库或手动配置，直接运行：
+
+```bash
+npx dr-claw
+```
+
+或全局安装后使用：
+
+```bash
+npm install -g dr-claw
+dr-claw
+```
+
+打开浏览器访问 `http://localhost:3001`，创建账户即可开始使用。
+
+### 方式二：从源码安装（开发者）
 
 1. **克隆仓库：**
 ```bash
@@ -170,9 +224,17 @@ Dr. Claw 提供两种使用方式：**前端 UI** 和 **纯终端模式**。UI �
 
 #### 方式 A：前端 UI
 
+<details>
+<summary><strong>在浏览器中打开 Web UI</strong></summary>
+
 打开浏览器访问 `http://localhost:5173`（或您在 `.env` 中配置的端口）。
 
+</details>
+
 #### 方式 B：纯终端模式
+
+<details>
+<summary><strong>使用 CLI 工具搭配你偏好的 Agent</strong></summary>
 
 <p align="center">
   <img src="public/screenshots/terminal_example1.png" alt="终端工作流示例" width="800">
@@ -214,7 +276,12 @@ claude    # 或: gemini | codex
 > Read .claude/skills/inno-experiment-analysis/SKILL.md and follow it to analyze my results.
 ```
 
+</details>
+
 #### 方式 C：OpenRouter 终端对话
+
+<details>
+<summary><strong>使用任意 OpenRouter 模型的轻量终端对话</strong></summary>
 
 如果你想要一种轻量级的纯终端体验，使用任意 [OpenRouter](https://openrouter.ai/) 模型，可以使用内置的 `dr-claw chat` 命令。无需浏览器或 UI — 直接在终端中进行具备完整工具调用能力（文件读写、Shell、Grep、Glob、网页搜索/抓取）的智能体对话。
 
@@ -239,257 +306,239 @@ node server/cli.js chat --model anthropic/claude-sonnet-4 --key sk-or-your-key
 
 浏览所有可用模型：[openrouter.ai/models](https://openrouter.ai/models)。
 
+</details>
 
+#### 方式 D：桌面应用
+
+<details>
+<summary><strong>作为独立桌面应用运行（macOS 和 Windows）</strong></summary>
+
+```bash
+# 开发模式（启动 Electron 并支持热重载）
+npm run desktop:dev
+
+# 构建可分发的安装包（.dmg / .exe）
+npm run desktop:dist
+```
+
+桌面架构、IPC 桥接和 CI/CD 发布流程的详细说明请参阅 [electron/README.md](electron/README.md)。
+
+</details>
 
 如果后续 Agent 网页搜索不可用，请查看[网页搜索排障](#troubleshooting-web-search-zh)。
 
 ## 接入 OpenClaw
+<details>
+<summary><span style="font-size: 1.17em; font-weight: 600;">把 Dr. Claw 变成移动端友好、支持语音的研究秘书</span></summary>
 
-这一部分面向**第一次接 OpenClaw 的新用户**。目标不是讲所有细节，而是先让你在最短路径里跑通：
+> OpenClaw 通过 `drclaw` CLI 连接 Dr. Claw，提供项目控制、智能摘要和主动通知 — 随时随地在手机或聊天中使用。
 
-- OpenClaw 能看 Dr. Claw 里有哪些项目
-- OpenClaw 能发现哪些 session 在等用户回复
-- OpenClaw 能替用户回复某个 session，让 Dr. Claw 继续执行
-- OpenClaw 能做项目 / 全局进展总结，并推荐下一步该盯什么
+### 架构
 
-可以把整体关系理解成：
-- **Dr. Claw**：真正执行研究任务、维护项目状态和 session
-- **`drclaw` CLI**：给外部调用的稳定控制面
-- **OpenClaw**：用户在手机 / IM / 语音侧接触到的秘书
-
-### 给新用户的最短接入路径
-
-如果你只想先跑通一版，按下面 5 步做就够了：
-
-1. 启动 Dr. Claw 服务
-2. 安装 `drclaw` CLI
-3. 让 OpenClaw 能本地执行 shell / `exec`
-4. 安装仓库提供的 OpenClaw skill
-5. 先跑通 `chat waiting` 和 `digest portfolio` 两个命令
-
-这两个命令一旦通了，OpenClaw 就已经具备了“秘书”雏形。
-
-### 第 0 步：先确认你已经具备这些前提
-
-建议先确认：
-- 你已经能本地启动 Dr. Claw
-- 你已经至少创建过一个项目，或者已有 `~/vibelab/...` 下的项目
-- 你已经配置好一个底层执行 Agent，例如 Claude Code、Gemini CLI 或 Codex
-- 你本机能运行 OpenClaw，并且 OpenClaw 允许本地工具执行
-
-如果这四件事还没满足，先把 Dr. Claw 本身跑起来，再接 OpenClaw。
-
-### 第 1 步：启动并验证 Dr. Claw 服务
-
-在仓库根目录执行：
-
-```bash
-npm install
-npm run dev
+```
+┌─────────────────────────────────────────────────────────────┐
+│  用户（手机 / 聊天 / 语音）                                    │
+│    ↕                                                        │
+│  OpenClaw  ── 秘书层 ──────────────────────────────────┐    │
+│    │  执行本地 `drclaw ...`              接收推送消息    │    │
+│    ↓                                        ↑          │    │
+│  drclaw CLI  ── 稳定控制面 ────────────────────────┐   │    │
+│    │  JSON + openclaw.* schema          WebSocket  │   │    │
+│    ↓                                        │      │   │    │
+│  Dr. Claw 服务                           Watcher ──┘   │    │
+│    (项目、会话、pipeline、产物)                          │    │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-另一个终端里先检查连通性：
+集成分三层：
+
+| 层级 | 功能 |
+|------|------|
+| **控制面** | OpenClaw 在本地执行 `drclaw --json ...` 命令 |
+| **结构化契约** | JSON 响应携带版本化的 `openclaw.*` schema |
+| **主动推送** | 事件驱动的 watcher 把重要变化推送到飞书 / Lark |
+
+---
+
+### 快速接入（6 步）
+
+<details>
+<summary><strong>前置条件</strong></summary>
+
+- Dr. Claw 服务已启动（`npm run dev` 或 `drclaw server on`）
+- 至少有一个项目和一个执行后端（Claude Code、Gemini CLI 或 Codex）
+- OpenClaw 具备本地 shell / `exec` 能力
+- *（可选）* 飞书 / Lark channel 用于推送通知
+
+</details>
+
+**1. 启动服务**
 
 ```bash
-drclaw --json auth status
-drclaw server status
+npm install && npm run dev       # 或: drclaw server on
+drclaw --json auth status        # 验证连通性
 ```
 
-优先以 `auth status` 作为服务可达性判断。如果它能返回 JSON，说明服务已经可连。
+> `drclaw server status` 只报告 `drclaw server on` 拉起的 daemon。如果用 `npm run dev` 启动，它可能显示 `STOPPED`，但 `http://localhost:3001` 实际可用 — 以 `auth status` 为准。
 
-`drclaw server status` 只会显示由 `drclaw server on` 拉起的 daemon。如果你是直接用 `npm run dev` 启动，本地服务明明可用，它也仍然可能显示 `STOPPED`。
-
-如果你希望由 Dr. Claw CLI 来托管后台进程，再执行：
-
-```bash
-drclaw server on
-```
-
-### 第 2 步：安装并验证 `drclaw` CLI
-
-在仓库根目录执行：
+**2. 安装 CLI**
 
 ```bash
 pip install -e ./agent-harness
-```
-
-然后验证：
-
-```bash
 drclaw --help
-drclaw --json auth status
-drclaw --json projects list
 ```
 
-推荐按这个顺序判断：
-- `drclaw --json auth status` 能返回 JSON，说明服务可达
-- `drclaw --json projects list` 只有在你已经登录，或者本地已有 token 时才会成功
-
-如果 `projects list` 返回 `Not logged in`，先登录：
+如果 PATH 中没有 `drclaw`：
 
 ```bash
-drclaw auth login --username <username> --password <password>
+PYTHONPATH=agent-harness python3 -m cli_anything.drclaw.drclaw_cli --help
 ```
 
-### 第 3 步：让 OpenClaw 具备本地执行 CLI 的能力
-
-OpenClaw 这边最关键的不是“深度 API 集成”，而是**本地能直接执行 `drclaw ...`**。
-
-最少需要让 OpenClaw 能执行这些命令：
+**3. 登录认证**
 
 ```bash
-drclaw --json chat waiting
-drclaw --json digest portfolio
-drclaw --json chat reply --project <project> --session <session-id> -m "<message>"
-drclaw --json workflow continue --project <project> --session <session-id> -m "<instruction>"
+drclaw auth login --username <user> --password <pass>
+drclaw --json projects list      # 应返回你的项目列表
 ```
 
-推荐做法：
-- 给 OpenClaw 开启本地 `exec` / shell 工具
-- 优先走本地 CLI 调用
-- 不要一开始就做复杂代理层或额外 server bridge
-
-因为这一层越薄，越稳定，也越容易排查问题。
-
-### 第 4 步：一条命令接入 OpenClaw
-
-直接执行：
+**4. 关联 OpenClaw**
 
 ```bash
 drclaw install --server-url http://localhost:3001
-```
-
-这个命令会自动：
-- 把 Dr. Claw skill 复制到 `~/.openclaw/workspace/skills/drclaw`
-- 安装 OpenClaw 本地串行调用需要的辅助脚本
-- 保存 Dr. Claw server URL，供 CLI / OpenClaw 后续复用
-- 记录本机 `drclaw` 可执行文件路径
-
-如果你还希望在安装时顺手保存默认推送通道：
-
-```bash
+# 带推送 channel：
 drclaw install --server-url http://localhost:3001 --push-channel feishu:<chat_id>
 ```
 
-兼容写法也保留：
+这会复制 Dr. Claw skill、安装 wrapper 脚本，并保存服务地址和 CLI 路径。
+
+**5. 验证核心流程**
+
+从 OpenClaw 执行以下四个命令 — 如果都返回有效 JSON，说明集成已就绪：
 
 ```bash
-drclaw openclaw install --server-url http://localhost:3001
+drclaw --json projects list                            # 解析项目
+drclaw --json chat waiting                             # 等待回复的会话
+drclaw --json digest portfolio                         # 跨项目汇总
+drclaw --json workflow status --project <project>      # 单项目状态
 ```
 
-### 第 5 步：先跑通两个最重要的命令
-
-对新用户来说，先不要追求全功能，先跑通这两个：
-
-1. **查看哪些 session 在等用户回复**
-```bash
-drclaw --json chat waiting
-```
-
-2. **查看全局项目进展和推荐动作**
-```bash
-drclaw --json digest portfolio
-```
-
-如果这两个命令都能被 OpenClaw 调起来，并能把结果总结给用户，你的最小可用集成就已经完成了。
-
-### 第 6 步：再补上“回复 session”的闭环
-
-用户接下来最常见的动作，就是看到 waiting session 后，让 OpenClaw 帮忙回复。
-
-固定套路是：
-
-1. 先查 waiting sessions：
-```bash
-drclaw --json chat waiting
-```
-
-2. 让用户选项目和 session
-
-3. 发送回复：
-```bash
-drclaw --json chat reply --project <project> --session <session-id> -m "<message>"
-```
-
-4. 立即复查它是不是还在 waiting：
-```bash
-drclaw --json chat waiting --project <project>
-```
-
-如果用户想围绕同一个项目继续追问，可以改用：
+**6. 回复会话**
 
 ```bash
-drclaw --json chat project --project <project> --session <session-id> -m "<instruction>"
+drclaw --json chat waiting                             # 选择会话
+drclaw --json chat reply --project <proj> --session <sid> -m “按方案 B 继续。”
+drclaw --json chat waiting --project <proj>            # 确认已处理
 ```
 
-这更适合做项目态多轮沟通。
-
-### 第 7 步：推荐 OpenClaw 的固定使用套路
-
-推荐让 OpenClaw 固定按下面几类套路工作。
-
-1. **用户问：现在有什么项目需要我处理？**
-```bash
-drclaw --json digest portfolio
-```
-
-2. **用户问：哪些 session 在等我回复？**
-```bash
-drclaw --json chat waiting
-```
-
-3. **用户问：某个项目现在进展如何？**
-```bash
-drclaw --json projects latest <project>
-drclaw --json projects progress <project>
-```
-
-4. **用户说：帮我回复这个 session 并让它继续做**
-```bash
-drclaw --json chat reply --project <project> --session <session-id> -m "<message>"
-```
-
-5. **用户说：我突然有个新 idea，帮我建项目并聊清楚**
-```bash
-drclaw --json projects idea /absolute/path/to/project --name "<display-name>" --idea "<idea text>"
-```
-
-### 第 8 步：优先使用串行调用策略
-
-当 OpenClaw 本地连续调用 `openclaw agent --local` 时，建议通过串行 wrapper 执行，避免多个 turn 抢同一个 session 锁。仓库里已提供脚本：
+多轮项目讨论：
 
 ```bash
-agent-harness/skills/dr-claw/scripts/openclaw_drclaw_turn.sh
+drclaw --json chat project --project <proj> --session <sid> -m “总结当前 blockers。”
 ```
 
-它适合把类似下面的调用封装起来：
+---
+
+### 结构化 Schema
+
+面向机器的命令返回版本化的 `openclaw` 字段：
+
+| Schema | 用途 |
+|--------|------|
+| `openclaw.turn.v1` | ��轮对话摘要 |
+| `openclaw.project.v1` | 项目摘要（状态、计数、下一步操作） |
+| `openclaw.portfolio.v1` | 跨项目概览与建议 |
+| `openclaw.daily.v1` | 每日摘要 |
+| `openclaw.report.v1` | 移动端报告 |
+| `openclaw.event.v1` | Watcher 事件与派生 signal |
+
+**客户端消费建议：**
+
+| 场景 | 读取字段 |
+|------|---------|
+| 判断是否需要打断用户 | `openclaw.decision.needed` |
+| 快捷操作 / 语音建议 | `openclaw.next_actions` |
+| 紧凑展示 | `openclaw.turn.summary` 或 `openclaw.focus` |
+| 处理 watcher 通知 | `openclaw.event.v1.event.signals` |
+
+> 只要有 `openclaw` 字段，就不要只依赖原始 `reply` 文本。
+
+正式契约文档：[`agent-harness/cli_anything/drclaw/SCHEMA.md`](agent-harness/cli_anything/drclaw/SCHEMA.md)
+
+---
+
+### 主动 Watcher
+
+Watcher 订阅 Dr. Claw WebSocket 事件，只在真正值得提醒时推送通知。
 
 ```bash
-openclaw_drclaw_turn.sh --json -m "Use your exec tool to run `drclaw --json digest portfolio`. Return only raw stdout."
+# 配置推送 channel
+drclaw openclaw configure --push-channel feishu:<chat_id>
+
+# 管理 watcher
+drclaw --json openclaw-watch on --to feishu:<chat_id>
+drclaw --json openclaw-watch status
+drclaw --json openclaw-watch off
 ```
 
-简单说：**OpenClaw 调 Dr. Claw CLI 时，宁可串行稳定，也不要并发冒险。**
+**工作流程：**
 
-### 第 9 步：如何判断集成已经成功
+```
+WebSocket 事件 → 项目解析 → snapshot 对比 → signal 推导
+                                                ↓
+                   去重 (6h TTL) ← 稳定签名 + signal kinds
+                                                ↓
+                   openclaw agent --deliver → 飞书 / Lark 消息
+                          (回退：bridge 直接发送)
+```
 
-满足下面 4 条，就说明新用户已经接通了：
-- OpenClaw 能列出 Dr. Claw 项目
-- OpenClaw 能说出哪些 session 在 waiting
-- OpenClaw 能对某个 session 成功发一条回复
-- OpenClaw 能给出一次 `digest portfolio` 风格的全局总结和建议
+**派生 signal：**
 
-做到这里，OpenClaw 就已经不只是聊天入口，而是 Dr. Claw 的移动秘书。
+| Signal | 含义 |
+|--------|------|
+| `human_decision_needed` | Agent 请求工具调用权限 |
+| `waiting_for_human` | 会话等待用户输入 |
+| `blocker_detected` / `blocker_cleared` | 任务阻塞 / 解除阻塞 |
+| `task_completed` | 任务完成 |
+| `next_task_changed` | 推荐的下一个任务已变更 |
+| `attention_needed` | 需要关注 |
+| `session_aborted` | 会话执行中止 |
 
-### 第 10 步：面向最终用户可以怎么说
+状态文件：`~/.drclaw/openclaw-watcher-state.json` | 日志：`~/.drclaw/logs/openclaw-watcher.log`
 
-接入完成后，用户就可以直接对 OpenClaw 说：
-- “看看现在 Dr. Claw 有哪些项目在等我回复。”
-- “把这个项目的最后一条消息和当前 progress 总结一下。”
-- “替我回复这个 session：先按方案 B 继续，做完给我汇报结果。”
-- “总结一下最近所有实验的进展，并推荐我今天优先处理什么。”
-- “我突然有个新 idea，帮我在 Dr. Claw 建一个 project，然后和我一起把它聊清楚并开始做。”
+---
 
-OpenClaw 的职责不是取代 Dr. Claw，而是把 Dr. Claw 变成一个**随时可调度、可汇报、可追问、可遥控**的后台研究执行系统。
+### 串行化本地 Turn
+
+当 OpenClaw 反复调用 `openclaw agent --local` 时，使用 wrapper 脚本避免 session lock 冲突：
+
+```bash
+agent-harness/skills/dr-claw/scripts/openclaw_drclaw_turn.sh \
+  --json -m “Use your exec tool to run \`drclaw --json digest portfolio\`. Return only raw stdout.”
+```
+
+> **原则：稳定的串行调用永远优于冒险的并发调用。**
+
+---
+
+### 接入自检清单
+
+当以下场景全部通过时，你的 OpenClaw 集成就已完成：
+
+- [ ] OpenClaw 能列出 Dr. Claw 项目
+- [ ] OpenClaw 能识别等待中的会话
+- [ ] OpenClaw 能成功回复一个会话
+- [ ] OpenClaw 能产出 `digest portfolio` 汇总
+- [ ] OpenClaw 在飞书 / Lark 收到至少一条 watcher 推送
+
+此时 OpenClaw 就已经成为 Dr. Claw 的移动秘书。用户可以自然地说：
+
+> *”看看哪些项目在等我回复。”*
+> *”总结一下这个项目的进展和 blockers。”*
+> *”替我回复这个会话：按方案 B 继续，做完汇报。”*
+> *”给我一个跨项目进展汇总，推荐今天优先处理什么。”*
+> *”我有个新想法 — 建个项目，和我讨论清楚，然后开始规划。”*
+
+</details>
 
 ## 配置说明
 
@@ -505,11 +554,12 @@ Dr. Claw 会从 `.env` 读取本地配置。对大多数用户来说，只需要
 
 Auto Research 的邮件通知配置在应用内的 **Settings → Email**。当前 v1 支持 Claude Code、Codex、Gemini 和 OpenRouter 作为执行引擎进行无人值守研究任务执行；如果运行中断，系统会自动回收僵尸 run，避免其长期停留在 `running` 状态。
 
-## OpenRouter
+<details>
+<summary><strong>OpenRouter 配置</strong></summary>
 
 [OpenRouter](https://openrouter.ai/) 作为一等公民集成，让你通过**一个 API 密钥**访问数百个模型（GPT-5、Claude、Gemini、DeepSeek、Llama、Mistral、Qwen、Kimi 等）。
 
-### 配置
+#### 配置
 
 1. 在 [openrouter.ai/keys](https://openrouter.ai/keys) 获取 API 密钥。
 2. 通过以下三种方式之一设置密钥：
@@ -517,7 +567,7 @@ Auto Research 的邮件通知配置在应用内的 **Settings → Email**。当�
    - **`.env` 文件：** 在项目 `.env` 中添加 `OPENROUTER_API_KEY=sk-or-...`
    - **UI 界面：** 进入 **Settings → OpenRouter** 并粘贴密钥
 
-### 在 UI 中使用 OpenRouter
+#### 在 UI 中使用 OpenRouter
 
 1. 打开项目并进入 **Chat**。
 2. 在 **Choose Your AI Assistant** 下点击 **OpenRouter**。
@@ -526,7 +576,7 @@ Auto Research 的邮件通知配置在应用内的 **Settings → Email**。当�
 
 OpenRouter 同样可用于 Project Dashboard 上的 **Auto Research** — 选择它作为提供方并选择任意模型。
 
-### 在终端中使用 OpenRouter
+#### 在终端中使用 OpenRouter
 
 无需浏览器。`dr-claw chat` CLI 提供完整的智能体终端会话：
 
@@ -540,7 +590,7 @@ node server/cli.js chat --model deepseek/deepseek-r1 --key sk-or-your-key
 
 CLI 支持与 UI 相同的工具（文件读写、Shell、Grep、Glob、网页搜索、网页抓取、Todo）。输入你的消息，Agent 将自主执行多步骤研究任务。
 
-### 默认模型
+#### 默认模型
 
 在 `.env` 中设置 `OPENROUTER_MODEL` 以更改未指定模型时的默认值：
 
@@ -549,6 +599,8 @@ OPENROUTER_MODEL=moonshotai/kimi-k2.5
 ```
 
 如未设置，默认使用 `anthropic/claude-sonnet-4`。
+
+</details>
 
 <a id="research-lab-quick-example"></a>
 
@@ -719,6 +771,37 @@ Dr. Claw 当前以生成后的 **Pipeline Task List** 作为执行流水线。
 Agent 会自动发现这些 skills，并在任务执行过程中按需调用。
 
 </details>
+
+## Claude Code 插件
+
+如果你主要使用 **Claude Code** 作为编程代理，希望在终端中直接使用 Dr. Claw 的研究流水线而无需运行完整的 Web UI，可以使用独立的 Claude Code 插件：
+
+**[`OpenLAIR/dr-claw-plugin-cc`](https://github.com/OpenLAIR/dr-claw-plugin-cc)**
+
+该插件提供 4 个斜杠命令（`/drclaw:setup`、`/drclaw:status`、`/drclaw:run`、`/drclaw:reset`），让你可以初始化研究项目、跟踪 5 个流水线阶段的进度并执行任务 — 全部在 Claude Code 会话中完成。
+
+### 安装
+
+在任意 Claude Code 会话中运行：
+
+```
+/plugin marketplace add OpenLAIR/dr-claw-plugin-cc
+/plugin install dr-claw@dr-claw
+/reload-plugins
+```
+
+插件安装完成后在后续会话中均可使用。运行 `/drclaw:setup` 即可初始化新的研究项目。
+
+> **安装范围：** 默认安装到用户级别（所有项目可用）。添加 `--scope project` 可仅安装到当前项目，`--scope local` 可安装到本机。
+
+### 包含内容
+
+- **60+ 内置技能** — 从 Dr. Claw 技能库中精选的子集，涵盖文献调研、想法生成、实验开发、论文写作等
+- **3 种项目模板** — 方法/模型、数据集/基准、综述论文，每种都有预配置的任务流水线
+- **自动检测** — 插件在会话启动时自动检测已有的流水线项目并显示当前进度
+- **相同数据格式** — 插件创建的项目使用与完整 Dr. Claw 工作区相同的 `research_brief.json` 和 `tasks.json` 格式，两者可以互通
+
+> **注意：** 插件内置的技能是本仓库技能库的快照，技能同步由维护者手动完成 — 详见插件仓库的 README。
 
 ## 补充说明
 <details>

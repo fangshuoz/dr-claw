@@ -327,6 +327,7 @@
     "description": "这里展示本次会话轨迹中实际出现过的文件、任务和输出。",
     "codexNotice": "Codex 的可见性目前并不完整，取决于运行时当前暴露的工具事件。",
     "traceError": "完整会话轨迹加载失败，当前仅显示内存中的实时消息。",
+    "fileTreeError": "加载项目文件失败。",
     "stats": {
       "mode": "模式",
       "provider": "提供方",
@@ -334,7 +335,8 @@
       "unreadOutputs": "未读输出"
     },
     "sections": {
-      "injectedContext": "注入上下文",
+      "injectedContext": "引用上下文",
+      "skillsSubheader": "技能",
       "taskContext": "任务上下文",
       "reviewQueue": "审阅队列",
       "fileReview": "文件审阅"
@@ -358,8 +360,15 @@
     "empty": {
       "injectedContext": "当前还没有观察到文件或目录上下文。",
       "taskContext": "当前还没有捕获到任务或待办上下文。",
-      "reviewQueue": "当前会话还没有发现生成文件。"
+      "reviewQueue": "当前会话还没有发现生成文件。",
+      "files": "未找到文件"
     },
+    "sidebarTabs": {
+      "context": "上下文",
+      "research": "研究",
+      "files": "文件"
+    },
+    "showLess": "收起",
     "preview": {
       "titleFallback": "预览",
       "selectFile": "选择一个文件进行预览",
@@ -367,7 +376,9 @@
       "loading": "正在加载预览...",
       "loadError": "加载预览失败。{{error}}",
       "selectToReview": "选择一个文件进行审阅",
-      "unreadHint": "输出文件会保持未读状态，直到你从审阅队列中打开它。"
+      "unreadHint": "输出文件会保持未读状态，直到你从审阅队列中打开它。",
+      "closePreview": "关闭预览",
+      "openInEditor": "在编辑器中打开"
     }
   },
   "shell": {

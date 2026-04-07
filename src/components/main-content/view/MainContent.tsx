@@ -1,9 +1,7 @@
 import React, { useEffect } from 'react';
 
 import ChatInterface from '../../chat/view/ChatInterface';
-import FileTree from '../../FileTree';
 import GitPanel from '../../GitPanel';
-import ResearchLab from '../../ResearchLab';
 import SkillsDashboard from '../../SkillsDashboard';
 import ComputePanel from '../../ComputePanel';
 import ErrorBoundary from '../../ErrorBoundary';
@@ -91,9 +89,11 @@ function MainContent({
     }
   }, [selectedProject, currentProject, setCurrentProject]);
 
+  // Migration shim: redirect legacy tab values from before PR #130 merged
+  // Research Lab and Files into the sidebar. Safe to remove after 2026-07-01.
   useEffect(() => {
-    if (activeTab === 'tasks') {
-      setActiveTab('researchlab');
+    if (activeTab === 'tasks' || activeTab === 'researchlab' || activeTab === 'files') {
+      setActiveTab('chat');
     }
   }, [activeTab, setActiveTab]);
 
@@ -241,7 +241,7 @@ function MainContent({
                 autoScrollToBottom={autoScrollToBottom}
                 sendByCtrlEnter={sendByCtrlEnter}
                 externalMessageUpdate={externalMessageUpdate}
-                onShowAllTasks={() => setActiveTab('researchlab')}
+                onStartWorkspaceQa={onStartWorkspaceQa}
                 pendingAutoIntake={pendingAutoIntake}
                 clearPendingAutoIntake={clearPendingAutoIntake}
                 importedProjectAnalysisPrompt={importedProjectAnalysisPrompt}
@@ -252,16 +252,6 @@ function MainContent({
               />
             </ErrorBoundary>
           </div>
-
-          {activeTab === 'files' && (
-            <div className="h-full overflow-hidden">
-              <FileTree
-                selectedProject={selectedProject}
-                onFileOpen={handleFileOpen}
-                onStartWorkspaceQa={onStartWorkspaceQa}
-              />
-            </div>
-          )}
 
           {activeTab === 'shell' && (
             <div className="h-full w-full overflow-hidden">
@@ -280,15 +270,6 @@ function MainContent({
               <SurveyPage
                 selectedProject={selectedProject}
                 onChatFromReference={onChatFromReference ? (ref: Reference) => onChatFromReference(selectedProject, ref) : undefined}
-              />
-            </div>
-          )}
-
-          {activeTab === 'researchlab' && (
-            <div className="h-full overflow-hidden">
-              <ResearchLab
-                selectedProject={selectedProject}
-                onNavigateToChat={() => setActiveTab('chat')}
               />
             </div>
           )}

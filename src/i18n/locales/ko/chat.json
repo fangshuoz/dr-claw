@@ -327,6 +327,7 @@
     "description": "이 세션 추적에서 실제로 관측된 파일, 작업, 출력물을 보여줍니다.",
     "codexNotice": "Codex 가시성은 현재 런타임이 노출하는 도구 이벤트 범위에 따라 부분적으로만 제공됩니다.",
     "traceError": "전체 세션 추적을 불러오지 못했습니다. 현재는 메모리 내 실시간 메시지만 표시합니다.",
+    "fileTreeError": "프로젝트 파일을 불러오지 못했습니다.",
     "stats": {
       "mode": "모드",
       "provider": "프로바이더",
@@ -334,7 +335,8 @@
       "unreadOutputs": "읽지 않은 출력"
     },
     "sections": {
-      "injectedContext": "주입된 컨텍스트",
+      "injectedContext": "참조된 컨텍스트",
+      "skillsSubheader": "스킬",
       "taskContext": "작업 컨텍스트",
       "reviewQueue": "검토 대기열",
       "fileReview": "파일 검토"
@@ -358,8 +360,15 @@
     "empty": {
       "injectedContext": "아직 파일 또는 디렉터리 컨텍스트가 관측되지 않았습니다.",
       "taskContext": "아직 작업 또는 Todo 컨텍스트가 수집되지 않았습니다.",
-      "reviewQueue": "이 세션에서 생성된 파일이 아직 없습니다."
+      "reviewQueue": "이 세션에서 생성된 파일이 아직 없습니다.",
+      "files": "파일을 찾을 수 없습니다"
     },
+    "sidebarTabs": {
+      "context": "컨텍스트",
+      "research": "연구",
+      "files": "파일"
+    },
+    "showLess": "접기",
     "preview": {
       "titleFallback": "미리보기",
       "selectFile": "미리볼 파일을 선택하세요",
@@ -367,7 +376,9 @@
       "loading": "미리보기 로딩 중...",
       "loadError": "미리보기를 불러오지 못했습니다. {{error}}",
       "selectToReview": "검토할 파일을 선택하세요",
-      "unreadHint": "출력 파일은 검토 대기열에서 열기 전까지 읽지 않음 상태로 유지됩니다."
+      "unreadHint": "출력 파일은 검토 대기열에서 열기 전까지 읽지 않음 상태로 유지됩니다.",
+      "closePreview": "미리보기 닫기",
+      "openInEditor": "편집기에서 열기"
     }
   },
   "shell": {

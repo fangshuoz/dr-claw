@@ -58,6 +58,15 @@ export default {
         'safe-area-inset-bottom': 'env(safe-area-inset-bottom)',
         'mobile-nav': 'var(--mobile-nav-total)',
       },
+      animation: {
+        shimmer: 'shimmer 2.5s ease-in-out infinite',
+      },
+      keyframes: {
+        shimmer: {
+          '0%': { transform: 'translateX(-100%)' },
+          '100%': { transform: 'translateX(100%)' },
+        },
+      },
     },
   },
   plugins: [require('@tailwindcss/typography')],

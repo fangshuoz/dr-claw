@@ -22,6 +22,9 @@ import { Button } from '../../ui/button';
 import type { PendingAutoIntake } from '../../../types/app';
 import { CLAUDE_MODELS, CURSOR_MODELS, CODEX_MODELS, GEMINI_MODELS, OPENROUTER_MODELS } from '../../../../shared/modelConstants';
 import { getProviderDisplayName } from '../utils/chatFormatting';
+import CodeEditor from '../../CodeEditor';
+import type { EditingFile } from '../../main-content/types/types';
+import { normalizePath, toRelativePath, isSafePath, fileNameFromPath } from '../../../utils/pathUtils';
 
 
 const DEFAULT_PROVIDER_AVAILABILITY: Record<Provider, ProviderAvailability> = {
@@ -92,7 +95,7 @@ function ChatInterface({
   autoScrollToBottom,
   sendByCtrlEnter,
   externalMessageUpdate,
-  onShowAllTasks,
+  onStartWorkspaceQa,
   pendingAutoIntake,
   clearPendingAutoIntake,
   importedProjectAnalysisPrompt,
@@ -105,6 +108,31 @@ function ChatInterface({
   const { refreshTasks } = useTaskMaster();
   const { t } = useTranslation('chat');
   const [isShellEditPromptOpen, setIsShellEditPromptOpen] = useState(false);
+  const [previewFile, setPreviewFile] = useState<EditingFile | null>(null);
+
+  const handleFilePreview = useCallback((filePath: string) => {
+    const root = selectedProject?.fullPath || selectedProject?.path || '';
+    const relative = toRelativePath(filePath, root);
+    if (!relative || !isSafePath(relative)) return;
+    const name = fileNameFromPath(normalizePath(filePath));
+    setPreviewFile({ name, path: relative, projectName: selectedProject?.name });
+  }, [selectedProject]);
+
+  const handleClosePreview = useCallback(() => {
+    setPreviewFile(null);
+  }, []);
+
+  const [sidebarTab, setSidebarTab] = useState<'context' | 'research' | 'files'>(() => {
+    if (typeof window === 'undefined') return 'context';
+    const stored = window.localStorage.getItem('chat-sidebar-active-tab');
+    return (stored === 'research' || stored === 'files') ? stored : 'context';
+  });
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem('chat-sidebar-active-tab', sidebarTab);
+    }
+  }, [sidebarTab]);
 
   const streamBufferRef = useRef('');
   const streamTimerRef = useRef<number | null>(null);
@@ -517,6 +545,10 @@ function ChatInterface({
   }, [selectedProject?.name, selectedSession?.id]);
 
   useEffect(() => {
+    setPreviewFile(null);
+  }, [selectedSession?.id, selectedProject?.name]);
+
+  useEffect(() => {
     if (!isLoading || !canAbortSession) {
       return;
     }
@@ -656,7 +688,7 @@ function ChatInterface({
         <div className="flex justify-end px-4 pb-4">
           <ChatTaskProgressPill
             onStartTask={handleStartTaskInChat}
-            onShowAllTasks={onShowAllTasks}
+            onShowAllTasks={() => setSidebarTab('research')}
           />
         </div>
       </>
@@ -667,6 +699,18 @@ function ChatInterface({
     <>
       <div className="h-full flex min-h-0 flex-col xl:flex-row">
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+          {previewFile && (
+            <div className="flex-1 min-h-0 overflow-hidden">
+              <CodeEditor
+                file={previewFile}
+                onClose={handleClosePreview}
+                projectPath={selectedProject?.path}
+                selectedProject={selectedProject}
+                isSidebar
+              />
+            </div>
+          )}
+          <div className={previewFile ? 'hidden' : 'flex min-h-0 flex-1 flex-col'}>
         {shouldShowImportedProjectAnalysisPrompt && (
           <div className="mx-auto mt-4 w-full max-w-3xl px-3 sm:px-4">
             <div className="rounded-xl border border-border bg-card/95 shadow-sm px-4 py-4 sm:px-5">
@@ -772,7 +816,7 @@ function ChatInterface({
           loadAllJustFinished={loadAllJustFinished}
           showLoadAllOverlay={showLoadAllOverlay}
           createDiff={createDiff}
-          onFileOpen={onFileOpen}
+          onFileOpen={handleFilePreview}
           onShowSettings={onShowSettings}
           onGrantToolPermission={handleGrantToolPermission}
           onSuggestShellEdit={handleOpenShellEditPrompt}
@@ -796,7 +840,7 @@ function ChatInterface({
             <div className="flex-1 min-w-0">
               <ChatTaskProgressPill
                 onStartTask={handleStartTaskInChat}
-                onShowAllTasks={onShowAllTasks}
+                onShowAllTasks={() => setSidebarTab('research')}
               />
             </div>
           </div>
@@ -876,6 +920,7 @@ function ChatInterface({
           }
         />
 
+          </div>
         </div>
 
         <ChatContextSidebar
@@ -885,7 +930,11 @@ function ChatInterface({
           provider={provider}
           newSessionMode={newSessionMode}
           chatMessages={chatMessages}
-          onFileOpen={onFileOpen}
+          onFileOpen={handleFilePreview}
+          activeSidebarTab={sidebarTab}
+          onSidebarTabChange={setSidebarTab}
+          onStartWorkspaceQa={onStartWorkspaceQa}
+          onStartTask={handleStartTaskInChat}
         />
       </div>
 

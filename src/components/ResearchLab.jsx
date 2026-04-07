@@ -447,7 +447,27 @@ function ResearchMetricCard({
   value,
   detail,
   accentClass,
+  compact = false,
 }) {
+  if (compact) {
+    return (
+      <div className="rounded-xl border border-white/70 bg-white/78 px-3 py-2 shadow-sm backdrop-blur dark:border-white/10 dark:bg-slate-950/50">
+        <div className="flex items-center gap-2">
+          <div className={`flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg border ${accentClass}`}>
+            <Icon className="h-3.5 w-3.5" />
+          </div>
+          <div className="min-w-0">
+            <div className="flex items-baseline gap-1.5">
+              <span className="text-lg font-semibold tracking-tight text-foreground">{value}</span>
+              <span className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</span>
+            </div>
+            {detail ? <div className="truncate text-[10px] text-muted-foreground">{detail}</div> : null}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="rounded-[26px] border border-white/70 bg-white/78 p-4 shadow-[0_16px_45px_rgba(15,23,42,0.08)] backdrop-blur dark:border-white/10 dark:bg-slate-950/50 dark:shadow-[0_20px_55px_rgba(2,6,23,0.45)]">
       <div className="flex items-start justify-between gap-3">
@@ -464,7 +484,7 @@ function ResearchMetricCard({
   );
 }
 
-function PipelineStageChip({ stage }) {
+function PipelineStageChip({ stage, compact = false }) {
   const tone = {
     survey: 'border-sky-200/70 bg-sky-50/80 dark:border-sky-900/70 dark:bg-sky-950/20',
     ideation: 'border-amber-200/70 bg-amber-50/80 dark:border-amber-900/70 dark:bg-amber-950/20',
@@ -474,10 +494,23 @@ function PipelineStageChip({ stage }) {
   }[stage.key] || 'border-border/60 bg-background/60';
 
   const summaryLabel = stage.total > 0
-    ? `${stage.done}/${stage.total} done`
+    ? `${stage.done}/${stage.total}`
     : stage.artifacts > 0
       ? 'Artifacts only'
       : 'Waiting';
+
+  if (compact) {
+    return (
+      <div className={`rounded-lg border px-2 py-1.5 shadow-sm ${tone}`}>
+        <div className="flex items-center justify-between gap-1">
+          <span className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-[9px] font-medium ${stage.meta.className}`}>
+            {stage.meta.label}
+          </span>
+          <span className="text-[9px] text-muted-foreground">{summaryLabel}</span>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={`rounded-2xl border px-3 py-3 shadow-sm ${tone}`}>
@@ -538,8 +571,9 @@ function getArtifactPreviewKind(file) {
 /* ------------------------------------------------------------------ */
 
 /** Overview card: title, brief summary, and instance metadata */
-function OverviewCard({ instance, config, researchBrief }) {
+function OverviewCard({ instance, config, researchBrief, compact = false }) {
   const [showOverviewModal, setShowOverviewModal] = useState(false);
+  const [collapsed, setCollapsed] = useState(compact);
   const overviewSections = useMemo(
     () => buildOverviewSections(researchBrief, instance),
     [researchBrief, instance],
@@ -572,23 +606,31 @@ function OverviewCard({ instance, config, researchBrief }) {
 
   return (
     <>
-      <div className="flex h-full flex-col gap-4 rounded-[28px] border border-border/60 bg-card/78 p-5 shadow-sm backdrop-blur">
-        <div className="flex items-start gap-3">
-          <div className="flex items-center gap-3">
-            <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-blue-200/70 bg-blue-50/90 text-blue-700 dark:border-blue-900/70 dark:bg-blue-950/30 dark:text-blue-300">
-              <FlaskConical className="w-5 h-5" />
-            </div>
-            <div>
-              <h3 className="text-base font-semibold tracking-tight text-foreground">
-                Research Overview
-              </h3>
-              <p className="text-xs text-muted-foreground">
-                Brief, scope, and instance metadata for this workspace
-              </p>
-            </div>
+      <div className={`flex h-full flex-col border border-border/60 bg-card/78 shadow-sm backdrop-blur ${compact ? 'gap-2 rounded-xl p-3 border-l-2 border-l-blue-400 dark:border-l-blue-600' : 'gap-4 rounded-[28px] p-5'}`}>
+        <button type="button" onClick={() => setCollapsed(v => !v)} aria-expanded={!collapsed} className="flex w-full items-center justify-between gap-2 text-left">
+          <div className="flex items-center gap-2.5">
+            {compact ? (
+              <div className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-lg bg-blue-100 text-blue-600 dark:bg-blue-950/50 dark:text-blue-400">
+                <FlaskConical className="w-3.5 h-3.5" />
+              </div>
+            ) : (
+              <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-blue-200/70 bg-blue-50/90 text-blue-700 dark:border-blue-900/70 dark:bg-blue-950/30 dark:text-blue-300">
+                <FlaskConical className="w-5 h-5" />
+              </div>
+            )}
+            <h3 className={`font-semibold tracking-tight text-foreground ${compact ? 'text-sm' : 'text-base'}`}>
+              Research Overview
+            </h3>
+            {!compact && <p className="text-xs text-muted-foreground">Brief, scope, and instance metadata for this workspace</p>}
           </div>
-        </div>
-        {overviewTitle && (
+          <div className="flex items-center gap-2">
+            {compact && metadata.length > 0 && (
+              <span className="rounded-full border border-blue-200/60 bg-blue-50/80 px-2 py-0.5 text-[10px] font-medium text-blue-700 dark:border-blue-900/50 dark:bg-blue-950/40 dark:text-blue-300">{metadata.length}</span>
+            )}
+            {collapsed ? <ChevronRight className="h-4 w-4 flex-shrink-0 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 flex-shrink-0 text-muted-foreground" />}
+          </div>
+        </button>
+        {!collapsed && overviewTitle && (
           <div className="rounded-2xl border border-border/60 bg-background/70 p-4 shadow-sm">
             <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">Research Title</p>
             <p className="mt-2 text-sm font-medium text-foreground">{overviewTitle}</p>
@@ -600,36 +642,33 @@ function OverviewCard({ instance, config, researchBrief }) {
             ) : null}
           </div>
         )}
-        {showTargetPaper && (
-          <div className="rounded-2xl border border-border/60 bg-background/70 p-4 shadow-sm">
+        {!collapsed && showTargetPaper && (
+          <div className={`rounded-2xl border border-border/60 bg-background/70 shadow-sm ${compact ? 'p-2.5' : 'p-4'}`}>
             <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">Target Paper</p>
-            <p className="mt-2 text-sm font-medium text-foreground">{targetPaper}</p>
+            <p className="mt-1 text-sm font-medium text-foreground">{targetPaper}</p>
             {instance?.url && (
               <a href={instance.url} target="_blank" rel="noreferrer"
-                className="mt-2 inline-flex items-center gap-1 text-xs text-blue-600 hover:underline dark:text-blue-400">
+                className="mt-1 inline-flex items-center gap-1 text-xs text-blue-600 hover:underline dark:text-blue-400">
                 {instance.url} <ExternalLink className="w-3 h-3" />
               </a>
             )}
           </div>
         )}
-        {metadata.length > 0 && (
-          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+        {!collapsed && metadata.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
             {metadata.map((item) => (
-              <span key={item.label} className="rounded-full border border-border/60 bg-background/70 px-3 py-1 shadow-sm">
+              <span key={item.label} className="rounded-full border border-border/60 bg-background/70 px-2 py-0.5 shadow-sm">
                 {item.label}: <code className="bg-muted px-1 rounded">{item.value}</code>
               </span>
             ))}
           </div>
         )}
-        {hasDetailedContent && (
-          <div className="flex items-center justify-between gap-3 rounded-2xl border border-border/60 bg-background/70 p-4 shadow-sm">
+        {!collapsed && hasDetailedContent && (
+          <div className={`flex items-center justify-between gap-3 rounded-2xl border border-border/60 bg-background/70 shadow-sm ${compact ? 'p-2.5' : 'p-4'}`}>
             <div className="min-w-0">
               <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">Research Brief</p>
-              <p className="mt-2 text-sm text-foreground/80">
+              <p className="mt-1 text-sm text-foreground/80">
                 {overviewSummary}
-              </p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Hidden from the card to keep the overview compact.
               </p>
             </div>
             <Button
@@ -642,8 +681,8 @@ function OverviewCard({ instance, config, researchBrief }) {
             </Button>
           </div>
         )}
-        {!hasOverviewContent && (
-          <div className="rounded-2xl border border-dashed border-border/60 bg-background/60 px-4 py-5 text-sm text-muted-foreground">
+        {!collapsed && !hasOverviewContent && (
+          <div className={`rounded-2xl border border-dashed border-border/60 bg-background/60 text-sm text-muted-foreground ${compact ? 'px-3 py-3' : 'px-4 py-5'}`}>
             Start the pipeline in Chat to populate the research brief, target paper, and working plan here.
           </div>
         )}
@@ -731,29 +770,40 @@ function OverviewCard({ instance, config, researchBrief }) {
 }
 
 /** Source papers list */
-function PapersCard({ papers }) {
+function PapersCard({ papers, compact = false }) {
   const [expanded, setExpanded] = useState(false);
+  const [collapsed, setCollapsed] = useState(compact);
   if (!papers || papers.length === 0) return null;
-  const shown = expanded ? papers : papers.slice(0, 5);
+  const shown = expanded ? papers : papers.slice(0, compact ? 3 : 5);
 
   return (
-    <div className="flex h-full flex-col rounded-[28px] border border-border/60 bg-card/78 p-5 shadow-sm backdrop-blur">
-      <div className="flex items-center gap-3">
-        <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-emerald-200/70 bg-emerald-50/90 text-emerald-700 dark:border-emerald-900/70 dark:bg-emerald-950/30 dark:text-emerald-300">
-          <BookOpen className="w-5 h-5" />
-        </div>
-        <div>
-          <h3 className="text-base font-semibold tracking-tight text-foreground">
+    <div className={`flex h-full flex-col border border-border/60 bg-card/78 shadow-sm backdrop-blur ${compact ? 'rounded-xl p-3 border-l-2 border-l-emerald-400 dark:border-l-emerald-600' : 'rounded-[28px] p-5'}`}>
+      <button type="button" onClick={() => setCollapsed(v => !v)} aria-expanded={!collapsed} className="flex w-full items-center justify-between gap-2 text-left">
+        <div className="flex items-center gap-2.5">
+          {compact ? (
+            <div className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-lg bg-emerald-100 text-emerald-600 dark:bg-emerald-950/50 dark:text-emerald-400">
+              <BookOpen className="w-3.5 h-3.5" />
+            </div>
+          ) : (
+            <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-emerald-200/70 bg-emerald-50/90 text-emerald-700 dark:border-emerald-900/70 dark:bg-emerald-950/30 dark:text-emerald-300">
+              <BookOpen className="w-5 h-5" />
+            </div>
+          )}
+          <h3 className={`font-semibold tracking-tight text-foreground ${compact ? 'text-sm' : 'text-base'}`}>
             Source Papers
           </h3>
-          <p className="text-xs text-muted-foreground">
-            Related work and references supplied to the pipeline ({papers.length})
-          </p>
+          {!compact && <p className="text-xs text-muted-foreground">Related work and references supplied to the pipeline ({papers.length})</p>}
         </div>
-      </div>
-      <ul className="mt-4 flex-1 space-y-1.5">
+        <div className="flex items-center gap-2">
+          {compact && (
+            <span className="rounded-full border border-emerald-200/60 bg-emerald-50/80 px-2 py-0.5 text-[10px] font-medium text-emerald-700 dark:border-emerald-900/50 dark:bg-emerald-950/40 dark:text-emerald-300">{papers.length}</span>
+          )}
+          {collapsed ? <ChevronRight className="h-4 w-4 flex-shrink-0 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 flex-shrink-0 text-muted-foreground" />}
+        </div>
+      </button>
+      {!collapsed && <ul className={`flex-1 space-y-1.5 ${compact ? 'mt-2' : 'mt-4'}`}>
         {shown.map((p, i) => (
-          <li key={i} className="flex items-start gap-3 rounded-2xl border border-border/60 bg-background/70 px-4 py-3 text-sm shadow-sm">
+          <li key={i} className={`flex items-start gap-2 rounded-2xl border border-border/60 bg-background/70 text-sm shadow-sm ${compact ? 'px-3 py-2' : 'px-4 py-3'}`}>
             <span className="mt-0.5 w-6 flex-shrink-0 text-right text-xs text-muted-foreground">{p.rank || i + 1}.</span>
             <div className="min-w-0 flex-1">
               {p.url ? (
@@ -780,10 +830,10 @@ function PapersCard({ papers }) {
             </div>
           </li>
         ))}
-      </ul>
-      {papers.length > 5 && (
+      </ul>}
+      {!collapsed && papers.length > (compact ? 3 : 5) && (
         <button onClick={() => setExpanded(!expanded)}
-          className="mt-3 flex items-center gap-1 text-xs text-blue-600 hover:underline dark:text-blue-400">
+          className="mt-2 flex items-center gap-1 text-xs text-blue-600 hover:underline dark:text-blue-400">
           {expanded ? 'Show less' : `Show all ${papers.length} papers`}
           <ChevronDown className={`w-3 h-3 transition-transform ${expanded ? 'rotate-180' : ''}`} />
         </button>
@@ -810,8 +860,9 @@ function StageSection({ title, icon: Icon, badgeClass, expanded, onToggle, child
   );
 }
 
-function TaskPipelineBoard({ tasks, isLoading, onNavigateToChat, projectName, onTaskUpdated }) {
+function TaskPipelineBoard({ tasks, isLoading, onNavigateToChat, projectName, onTaskUpdated, compact = false }) {
   const { t } = useTranslation('common');
+  const [boardCollapsed, setBoardCollapsed] = useState(compact);
   const [openStages, setOpenStages] = useState({});
   const [editingTaskId, setEditingTaskId] = useState(null);
   const [editForm, setEditForm] = useState({ title: '', description: '' });
@@ -945,26 +996,32 @@ function TaskPipelineBoard({ tasks, isLoading, onNavigateToChat, projectName, on
   }, []);
 
   return (
-    <div className="overflow-hidden rounded-[30px] border border-border/60 bg-card/78 shadow-sm backdrop-blur">
-      <div className="border-b border-border/60 bg-gradient-to-r from-sky-50 via-cyan-50 to-emerald-50 px-5 py-4 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950">
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
+    <div className={`overflow-hidden border border-border/60 bg-card/78 shadow-sm backdrop-blur ${compact ? 'rounded-xl border-l-2 border-l-cyan-400 dark:border-l-cyan-600' : 'rounded-[30px]'}`}>
+      <button type="button" onClick={() => setBoardCollapsed(v => !v)} aria-expanded={!boardCollapsed} className={`flex w-full items-center justify-between text-left ${compact ? 'px-3 py-2.5' : 'border-b border-border/60 bg-gradient-to-r from-sky-50 via-cyan-50 to-emerald-50 px-5 py-4 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950'}`}>
+        <div className="flex items-center gap-2">
+          {compact ? (
+            <div className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-lg bg-cyan-100 text-cyan-600 dark:bg-cyan-950/50 dark:text-cyan-400">
+              <ListChecks className="w-3.5 h-3.5" />
+            </div>
+          ) : (
             <div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-white/70 bg-white/85 shadow-sm dark:border-white/10 dark:bg-slate-800/80">
               <ListChecks className="w-4 h-4 text-cyan-700 dark:text-cyan-300" />
             </div>
-            <div>
-              <h3 className="text-base font-semibold tracking-tight text-foreground">
-                Pipeline Task List
-              </h3>
-              <p className="text-xs text-muted-foreground sm:text-sm">
-                Stage-oriented task board for your research pipeline
-              </p>
-            </div>
-          </div>
+          )}
+          <h3 className={`font-semibold tracking-tight text-foreground ${compact ? 'text-sm' : 'text-base'}`}>
+            Pipeline Task List
+          </h3>
+          {!compact && <p className="text-xs text-muted-foreground sm:text-sm">Stage-oriented task board for your research pipeline</p>}
         </div>
-      </div>
+        <div className="flex items-center gap-2">
+          {compact && summary.total > 0 && (
+            <span className="rounded-full border border-cyan-200/60 bg-cyan-50/80 px-2 py-0.5 text-[10px] font-medium text-cyan-700 dark:border-cyan-900/50 dark:bg-cyan-950/40 dark:text-cyan-300">{summary.total}</span>
+          )}
+          {boardCollapsed ? <ChevronRight className="h-4 w-4 flex-shrink-0 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 flex-shrink-0 text-muted-foreground" />}
+        </div>
+      </button>
 
-      <div className="space-y-4 p-5">
+      {!boardCollapsed && <div className={`space-y-4 ${compact ? 'p-3' : 'p-5'}`}>
         {isLoading ? (
           <div className="text-sm text-muted-foreground">Loading pipeline tasks...</div>
         ) : summary.total === 0 ? (
@@ -986,22 +1043,22 @@ function TaskPipelineBoard({ tasks, isLoading, onNavigateToChat, projectName, on
           </div>
         ) : (
           <>
-            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-              <div className="rounded-2xl border border-border/60 bg-background/80 px-4 py-3 shadow-sm">
-                <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Total</p>
-                <p className="text-sm font-semibold text-foreground">{summary.total}</p>
+            <div className={`grid grid-cols-4 ${compact ? 'gap-1.5' : 'gap-3'}`}>
+              <div className={`rounded-xl border border-border/60 bg-background/80 shadow-sm ${compact ? 'px-2 py-1.5' : 'px-4 py-3'}`}>
+                <p className={`uppercase tracking-[0.18em] text-muted-foreground ${compact ? 'text-[9px]' : 'text-[11px]'}`}>Total</p>
+                <p className={`font-semibold text-foreground ${compact ? 'text-xs' : 'text-sm'}`}>{summary.total}</p>
               </div>
-              <div className="rounded-2xl border border-emerald-200/70 bg-emerald-50/70 px-4 py-3 shadow-sm dark:border-emerald-900/70 dark:bg-emerald-950/20">
-                <p className="text-[11px] uppercase tracking-[0.18em] text-emerald-700/80 dark:text-emerald-300/80">Done</p>
-                <p className="text-sm font-semibold text-green-600 dark:text-green-400">{summary.done}</p>
+              <div className={`rounded-xl border border-emerald-200/70 bg-emerald-50/70 shadow-sm dark:border-emerald-900/70 dark:bg-emerald-950/20 ${compact ? 'px-2 py-1.5' : 'px-4 py-3'}`}>
+                <p className={`uppercase tracking-[0.18em] text-emerald-700/80 dark:text-emerald-300/80 ${compact ? 'text-[9px]' : 'text-[11px]'}`}>Done</p>
+                <p className={`font-semibold text-green-600 dark:text-green-400 ${compact ? 'text-xs' : 'text-sm'}`}>{summary.done}</p>
               </div>
-              <div className="rounded-2xl border border-blue-200/70 bg-blue-50/70 px-4 py-3 shadow-sm dark:border-blue-900/70 dark:bg-blue-950/20">
-                <p className="text-[11px] uppercase tracking-[0.18em] text-blue-700/80 dark:text-blue-300/80">In Progress</p>
-                <p className="text-sm font-semibold text-blue-600 dark:text-blue-400">{summary.inProgress}</p>
+              <div className={`rounded-xl border border-blue-200/70 bg-blue-50/70 shadow-sm dark:border-blue-900/70 dark:bg-blue-950/20 ${compact ? 'px-2 py-1.5' : 'px-4 py-3'}`}>
+                <p className={`uppercase tracking-[0.18em] text-blue-700/80 dark:text-blue-300/80 ${compact ? 'text-[9px]' : 'text-[11px]'}`}>In Prog</p>
+                <p className={`font-semibold text-blue-600 dark:text-blue-400 ${compact ? 'text-xs' : 'text-sm'}`}>{summary.inProgress}</p>
               </div>
-              <div className="rounded-2xl border border-slate-200/70 bg-slate-50/70 px-4 py-3 shadow-sm dark:border-slate-800 dark:bg-slate-950/30">
-                <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Pending</p>
-                <p className="text-sm font-semibold text-slate-700 dark:text-slate-300">{summary.pending}</p>
+              <div className={`rounded-xl border border-slate-200/70 bg-slate-50/70 shadow-sm dark:border-slate-800 dark:bg-slate-950/30 ${compact ? 'px-2 py-1.5' : 'px-4 py-3'}`}>
+                <p className={`uppercase tracking-[0.18em] text-muted-foreground ${compact ? 'text-[9px]' : 'text-[11px]'}`}>Pending</p>
+                <p className={`font-semibold text-slate-700 dark:text-slate-300 ${compact ? 'text-xs' : 'text-sm'}`}>{summary.pending}</p>
               </div>
             </div>
 
@@ -1261,7 +1318,7 @@ function TaskPipelineBoard({ tasks, isLoading, onNavigateToChat, projectName, on
             </div>
           </>
         )}
-      </div>
+      </div>}
 
       {deleteConfirmTask && ReactDOM.createPortal(
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
@@ -1334,7 +1391,9 @@ function SessionStageBoard({
   sessionTagsById,
   savingSessionId,
   onToggleStageTag,
+  compact = false,
 }) {
+  const [sessionBoardCollapsed, setSessionBoardCollapsed] = useState(compact);
   const stageTags = useMemo(() => {
     const tags = (Array.isArray(projectTags) ? projectTags : []).filter(
       (tag) => tag?.tagType === 'stage'
@@ -1364,38 +1423,55 @@ function SessionStageBoard({
 
   if (sessions.length === 0) {
     return (
-      <div className="rounded-[30px] border border-border/60 bg-card/78 p-5 shadow-sm backdrop-blur">
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-violet-200/70 bg-violet-50/90 text-violet-700 dark:border-violet-900/70 dark:bg-violet-950/30 dark:text-violet-300">
-            <MessageSquare className="w-5 h-5" />
+      <div className={`border border-border/60 bg-card/78 shadow-sm backdrop-blur ${compact ? 'rounded-xl p-3 border-l-2 border-l-violet-400 dark:border-l-violet-600' : 'rounded-[30px] p-5'}`}>
+        <button type="button" onClick={() => setSessionBoardCollapsed(v => !v)} aria-expanded={!sessionBoardCollapsed} className="flex w-full items-center justify-between gap-2 text-left">
+          <div className="flex items-center gap-2.5">
+            {compact ? (
+              <div className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-lg bg-violet-100 text-violet-600 dark:bg-violet-950/50 dark:text-violet-400">
+                <GitBranch className="w-3.5 h-3.5" />
+              </div>
+            ) : (
+              <div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-violet-200/70 bg-violet-50/90 text-violet-700 dark:border-violet-900/70 dark:bg-violet-950/30 dark:text-violet-300">
+                <GitBranch className="w-5 h-5" />
+              </div>
+            )}
+            <h3 className={`font-semibold tracking-tight text-foreground ${compact ? 'text-sm' : 'text-base'}`}>Session Stage Links</h3>
           </div>
-          <div>
-            <h3 className="text-base font-semibold tracking-tight text-foreground">Session Stage Links</h3>
-            <p className="text-xs text-muted-foreground">Bind indexed sessions to one or more research stages.</p>
+          {sessionBoardCollapsed ? <ChevronRight className="h-4 w-4 flex-shrink-0 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 flex-shrink-0 text-muted-foreground" />}
+        </button>
+        {!sessionBoardCollapsed && (
+          <div className={`rounded-2xl border border-dashed border-border/60 bg-background/60 text-sm text-muted-foreground ${compact ? 'mt-2 px-3 py-3' : 'mt-4 px-4 py-5'}`}>
+            No indexed sessions yet. Start a conversation in Chat, then come back to assign stages.
           </div>
-        </div>
-        <div className="mt-4 rounded-2xl border border-dashed border-border/60 bg-background/60 px-4 py-5 text-sm text-muted-foreground">
-          No indexed sessions yet. Start a conversation in Chat, then come back to assign stages.
-        </div>
+        )}
       </div>
     );
   }
 
   return (
-    <div className="rounded-[30px] border border-border/60 bg-card/78 p-5 shadow-sm backdrop-blur">
-      <div className="flex items-center gap-3">
-        <div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-violet-200/70 bg-violet-50/90 text-violet-700 dark:border-violet-900/70 dark:bg-violet-950/30 dark:text-violet-300">
-          <MessageSquare className="w-5 h-5" />
+    <div className={`border border-border/60 bg-card/78 shadow-sm backdrop-blur ${compact ? 'rounded-xl p-3 border-l-2 border-l-violet-400 dark:border-l-violet-600' : 'rounded-[30px] p-5'}`}>
+      <button type="button" onClick={() => setSessionBoardCollapsed(v => !v)} aria-expanded={!sessionBoardCollapsed} className="flex w-full items-center justify-between gap-2 text-left">
+        <div className="flex items-center gap-2.5">
+          {compact ? (
+            <div className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-lg bg-violet-100 text-violet-600 dark:bg-violet-950/50 dark:text-violet-400">
+              <GitBranch className="w-3.5 h-3.5" />
+            </div>
+          ) : (
+            <div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-violet-200/70 bg-violet-50/90 text-violet-700 dark:border-violet-900/70 dark:bg-violet-950/30 dark:text-violet-300">
+              <GitBranch className="w-5 h-5" />
+            </div>
+          )}
+          <h3 className={`font-semibold tracking-tight text-foreground ${compact ? 'text-sm' : 'text-base'}`}>Session Stage Links</h3>
         </div>
-        <div>
-          <h3 className="text-base font-semibold tracking-tight text-foreground">Session Stage Links</h3>
-          <p className="text-xs text-muted-foreground">
-            A session can belong to multiple stages, and each stage can contain multiple sessions.
-          </p>
+        <div className="flex items-center gap-2">
+          {compact && sessions.length > 0 && (
+            <span className="rounded-full border border-violet-200/60 bg-violet-50/80 px-2 py-0.5 text-[10px] font-medium text-violet-700 dark:border-violet-900/50 dark:bg-violet-950/40 dark:text-violet-300">{sessions.length}</span>
+          )}
+          {sessionBoardCollapsed ? <ChevronRight className="h-4 w-4 flex-shrink-0 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 flex-shrink-0 text-muted-foreground" />}
         </div>
-      </div>
+      </button>
 
-      <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
+      {!sessionBoardCollapsed && <div className={`mt-3 grid gap-2 ${compact ? 'grid-cols-3' : 'sm:grid-cols-2 xl:grid-cols-5'}`}>
         {stageTags.map((tag) => {
           const stageKey = tag.tagKey;
           const meta = TASK_STAGE_META[stageKey] || TASK_STAGE_META.unassigned;
@@ -1409,9 +1485,9 @@ function SessionStageBoard({
             </div>
           );
         })}
-      </div>
+      </div>}
 
-      <div className="mt-4 space-y-2">
+      {!sessionBoardCollapsed && <div className={`space-y-2 ${compact ? 'mt-2' : 'mt-4'}`}>
         {sessions.map((session) => {
           const currentTags = sessionTagsById[session.id] || session.tags || [];
           const selectedStageTagIds = new Set(getSessionStageTags(currentTags).map((tag) => tag.id));
@@ -1490,14 +1566,15 @@ function SessionStageBoard({
             </div>
           );
         })}
-      </div>
+      </div>}
     </div>
   );
 }
 
 /** Research artifacts grouped by pipeline stage */
-function ArtifactsCard({ artifacts, onSelect, selectedPath }) {
+function ArtifactsCard({ artifacts, onSelect, selectedPath, compact = false }) {
   const [openStages, setOpenStages] = useState({});
+  const [cardCollapsed, setCardCollapsed] = useState(compact);
 
   // Group by stage
   const groups = {};
@@ -1517,31 +1594,35 @@ function ArtifactsCard({ artifacts, onSelect, selectedPath }) {
   const toggle = (stage, defaultOpen) => setOpenStages(prev => ({ ...prev, [stage]: !(prev[stage] ?? defaultOpen) }));
 
   return (
-    <div className="rounded-[30px] border border-border/60 bg-card/78 p-5 shadow-sm backdrop-blur">
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-cyan-200/70 bg-cyan-50/90 text-cyan-700 dark:border-cyan-900/70 dark:bg-cyan-950/30 dark:text-cyan-300">
-            <Beaker className="w-5 h-5" />
-          </div>
-          <div>
-            <h3 className="text-base font-semibold tracking-tight text-foreground">
-              Artifacts Explorer
-            </h3>
-            <p className="text-xs text-muted-foreground">
-              Inspect outputs from survey, ideation, experiments, and publication
-            </p>
-          </div>
+    <div className={`border border-border/60 bg-card/78 shadow-sm backdrop-blur ${compact ? 'rounded-xl p-3 border-l-2 border-l-teal-400 dark:border-l-teal-600' : 'rounded-[30px] p-5'}`}>
+      <button type="button" onClick={() => setCardCollapsed(v => !v)} aria-expanded={!cardCollapsed} className="flex w-full items-center justify-between gap-2 text-left">
+        <div className="flex items-center gap-2.5">
+          {compact ? (
+            <div className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-lg bg-teal-100 text-teal-600 dark:bg-teal-950/50 dark:text-teal-400">
+              <Beaker className="w-3.5 h-3.5" />
+            </div>
+          ) : (
+            <div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-cyan-200/70 bg-cyan-50/90 text-cyan-700 dark:border-cyan-900/70 dark:bg-cyan-950/30 dark:text-cyan-300">
+              <Beaker className="w-5 h-5" />
+            </div>
+          )}
+          <h3 className={`font-semibold tracking-tight text-foreground ${compact ? 'text-sm' : 'text-base'}`}>
+            Artifacts Explorer
+          </h3>
         </div>
-        <span className="rounded-full border border-border/60 bg-background/75 px-3 py-1 text-xs text-muted-foreground shadow-sm">
-          {artifacts.length} files
-        </span>
-      </div>
-      {artifacts.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-border/60 bg-background/65 px-4 py-5 text-xs text-muted-foreground">
-          No stage artifacts found yet. Use the <code className="bg-muted px-1 rounded">inno-pipeline-planner</code> skill in Chat to start a pipeline, then refresh after tasks run.
+        <div className="flex items-center gap-2">
+          <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium shadow-sm ${compact ? 'border border-teal-200/60 bg-teal-50/80 text-teal-700 dark:border-teal-900/50 dark:bg-teal-950/40 dark:text-teal-300' : 'border border-border/60 bg-background/75 text-xs text-muted-foreground'}`}>
+            {artifacts.length}
+          </span>
+          {cardCollapsed ? <ChevronRight className="h-4 w-4 flex-shrink-0 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 flex-shrink-0 text-muted-foreground" />}
+        </div>
+      </button>
+      {cardCollapsed ? null : artifacts.length === 0 ? (
+        <div className={`rounded-2xl border border-dashed border-border/60 bg-background/65 text-xs text-muted-foreground ${compact ? 'mt-2 px-3 py-3' : 'px-4 py-5'}`}>
+          No stage artifacts found yet.
         </div>
       ) : (
-        <div className="space-y-2 max-h-[360px] overflow-y-auto pr-1">
+        <div className={`space-y-2 overflow-y-auto pr-1 ${compact ? 'mt-2 max-h-[200px]' : 'max-h-[360px]'}`}>
           {sorted.map(g => {
             const Icon = g.icon;
             const isStageSelected = g.files.some((file) => file.relativePath === selectedPath);
@@ -1677,10 +1758,10 @@ function hasFile(fileSet, relativePath) {
 }
 
 /** Final Idea card — shows the selected idea rendered as markdown */
-function IdeaCard({ projectName, config, projectFileSet }) {
+function IdeaCard({ projectName, config, projectFileSet, compact = false }) {
   const [ideaText, setIdeaText] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [expanded, setExpanded] = useState(true);
+  const [expanded, setExpanded] = useState(!compact);
   const [copied, setCopied] = useState(false);
 
   const remarkPlugins = useMemo(() => [remarkGfm, remarkMath], []);
@@ -1791,14 +1872,22 @@ function IdeaCard({ projectName, config, projectFileSet }) {
   if (!ideaText) return null;
 
   return (
-    <div className="overflow-hidden rounded-[30px] border border-border/60 bg-card/78 shadow-sm backdrop-blur">
+    <div className={`overflow-hidden border border-border/60 bg-card/78 shadow-sm backdrop-blur ${compact ? 'rounded-xl border-l-2 border-l-amber-400 dark:border-l-amber-600' : 'rounded-[30px]'}`}>
       {/* Header */}
-      <div
-        className="flex cursor-pointer items-center justify-between border-b border-border/60 bg-gradient-to-r from-amber-50 via-orange-50 to-white px-5 py-4 transition-colors hover:bg-muted/30 dark:from-slate-950 dark:via-amber-950/20 dark:to-slate-950"
+      <button
+        type="button"
+        aria-expanded={expanded}
+        className={`flex w-full items-center justify-between text-left transition-colors hover:bg-muted/30 ${compact ? 'px-3 py-2.5' : 'border-b border-border/60 bg-gradient-to-r from-amber-50 via-orange-50 to-white px-5 py-4 dark:from-slate-950 dark:via-amber-950/20 dark:to-slate-950'}`}
         onClick={() => setExpanded(!expanded)}
       >
         <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
-          <Sparkles className="w-4 h-4 text-amber-500 dark:text-amber-400" />
+          {compact ? (
+            <div className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-lg bg-amber-100 text-amber-600 dark:bg-amber-950/50 dark:text-amber-400">
+              <Lightbulb className="w-3.5 h-3.5" />
+            </div>
+          ) : (
+            <Sparkles className="w-4 h-4 text-amber-500 dark:text-amber-400" />
+          )}
           Final Selected Idea
         </h3>
         <div className="flex items-center gap-1.5">
@@ -1814,11 +1903,11 @@ function IdeaCard({ projectName, config, projectFileSet }) {
           </Button>
           <ChevronDown className={`w-4 h-4 text-muted-foreground transition-transform ${expanded ? '' : '-rotate-90'}`} />
         </div>
-      </div>
+      </button>
 
       {/* Body — markdown rendered */}
       {expanded && (
-        <div className="max-h-[600px] overflow-y-auto px-5 py-4">
+        <div className={`overflow-y-auto ${compact ? 'max-h-[300px] px-3 py-3' : 'max-h-[600px] px-5 py-4'}`}>
           <ReactMarkdown
             remarkPlugins={remarkPlugins}
             rehypePlugins={rehypePlugins}
@@ -1833,10 +1922,10 @@ function IdeaCard({ projectName, config, projectFileSet }) {
 }
 
 /** Paper (main.pdf) viewer — shows Publication/paper/main.pdf when present */
-function PaperCard({ projectName, projectRoot }) {
+function PaperCard({ projectName, projectRoot, compact = false }) {
   const [pdfUrl, setPdfUrl] = useState(null);
   const [status, setStatus] = useState('loading'); // 'loading' | 'loaded' | 'not_found' | 'error'
-  const [expanded, setExpanded] = useState(true);
+  const [expanded, setExpanded] = useState(!compact);
 
   useEffect(() => {
     if (!projectName || !projectRoot) {
@@ -1866,13 +1955,21 @@ function PaperCard({ projectName, projectRoot }) {
   }, [projectName, projectRoot]);
 
   return (
-    <div className="overflow-hidden rounded-[30px] border border-border/60 bg-card/78 shadow-sm backdrop-blur">
-      <div
-        className="flex cursor-pointer items-center justify-between border-b border-border/60 bg-gradient-to-r from-purple-50 via-fuchsia-50 to-white px-5 py-4 transition-colors hover:bg-muted/30 dark:from-slate-950 dark:via-purple-950/20 dark:to-slate-950"
+    <div className={`overflow-hidden border border-border/60 bg-card/78 shadow-sm backdrop-blur ${compact ? 'rounded-xl border-l-2 border-l-purple-400 dark:border-l-purple-600' : 'rounded-[30px]'}`}>
+      <button
+        type="button"
+        aria-expanded={expanded}
+        className={`flex w-full items-center justify-between text-left transition-colors hover:bg-muted/30 ${compact ? 'px-3 py-2.5' : 'border-b border-border/60 bg-gradient-to-r from-purple-50 via-fuchsia-50 to-white px-5 py-4 dark:from-slate-950 dark:via-purple-950/20 dark:to-slate-950'}`}
         onClick={() => setExpanded(!expanded)}
       >
         <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
-          <PenTool className="w-4 h-4 text-purple-500 dark:text-purple-400" />
+          {compact ? (
+            <div className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-lg bg-purple-100 text-purple-600 dark:bg-purple-950/50 dark:text-purple-400">
+              <PenTool className="w-3.5 h-3.5" />
+            </div>
+          ) : (
+            <PenTool className="w-4 h-4 text-purple-500 dark:text-purple-400" />
+          )}
           Paper (main.pdf)
         </h3>
         {status === 'loaded' && (
@@ -1890,7 +1987,7 @@ function PaperCard({ projectName, projectRoot }) {
           </Button>
         )}
         <ChevronDown className={`w-4 h-4 text-muted-foreground flex-shrink-0 ml-2 transition-transform ${expanded ? '' : '-rotate-90'}`} />
-      </div>
+      </button>
       {expanded && (
         <div className="border-t border-border">
           {status === 'loading' && (
@@ -2359,7 +2456,7 @@ function UsageGuideNotice({
 /*  Main component                                                     */
 /* ------------------------------------------------------------------ */
 
-function ResearchLab({ selectedProject, onNavigateToChat }) {
+function ResearchLab({ selectedProject, onNavigateToChat, compact = false, onFileOpen, onStartTask }) {
   const { t } = useTranslation('common');
   const [loading, setLoading] = useState(false);
   const [instance, setInstance] = useState(null);
@@ -2628,15 +2725,25 @@ function ResearchLab({ selectedProject, onNavigateToChat }) {
       setSavingSessionId(null);
     }
   }, [projectName, sessionTagsById]);
+  const handleArtifactSelect = useCallback((file) => {
+    if (compact && onFileOpen) {
+      const filePath = file.absolutePath || file.path || file.relativePath;
+      onFileOpen(filePath);
+    } else {
+      setSelectedFile(file);
+    }
+  }, [compact, onFileOpen, setSelectedFile]);
+
   const sidebar = (
-    <div className="space-y-4">
+    <div className={compact ? 'space-y-3' : 'space-y-4'}>
       <ArtifactsCard
         artifacts={artifacts}
-        onSelect={setSelectedFile}
-        selectedPath={selectedFile?.relativePath}
+        onSelect={handleArtifactSelect}
+        selectedPath={compact ? null : selectedFile?.relativePath}
+        compact={compact}
       />
 
-      {selectedFile ? (
+      {!compact && (selectedFile ? (
         <FileViewer
           projectName={projectName}
           file={selectedFile}
@@ -2644,7 +2751,7 @@ function ResearchLab({ selectedProject, onNavigateToChat }) {
         />
       ) : (
         <ArtifactPreviewEmptyState hasArtifacts={artifacts.length > 0} />
-      )}
+      ))}
     </div>
   );
 
@@ -2658,22 +2765,26 @@ function ResearchLab({ selectedProject, onNavigateToChat }) {
 
   return (
     <div className="flex h-full flex-col bg-[radial-gradient(circle_at_top_left,rgba(56,189,248,0.12),transparent_24%),radial-gradient(circle_at_top_right,rgba(16,185,129,0.10),transparent_20%),linear-gradient(180deg,rgba(248,250,252,0.96),rgba(255,255,255,0.94))] dark:bg-[radial-gradient(circle_at_top_left,rgba(14,165,233,0.12),transparent_24%),radial-gradient(circle_at_top_right,rgba(16,185,129,0.10),transparent_20%),linear-gradient(180deg,rgba(2,6,23,0.98),rgba(15,23,42,0.98))]">
-      <div className="flex flex-shrink-0 items-center justify-between border-b border-border/60 bg-background/75 px-4 py-3 backdrop-blur-xl">
+      <div className={`flex flex-shrink-0 items-center justify-between border-b border-border/60 bg-background/75 backdrop-blur-xl ${compact ? 'px-3 py-2' : 'px-4 py-3'}`}>
         <div className="flex min-w-0 items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-blue-200/70 bg-blue-50/85 text-blue-700 shadow-sm dark:border-blue-900/70 dark:bg-blue-950/30 dark:text-blue-300">
-            <FlaskConical className="h-5 w-5" />
-          </div>
+          {!compact && (
+            <div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-blue-200/70 bg-blue-50/85 text-blue-700 shadow-sm dark:border-blue-900/70 dark:bg-blue-950/30 dark:text-blue-300">
+              <FlaskConical className="h-5 w-5" />
+            </div>
+          )}
           <div className="min-w-0">
-            <div className="font-medium text-foreground">
+            <div className={`font-medium text-foreground ${compact ? 'text-sm' : ''}`}>
               {t('tabs.researchLab') || 'Research Lab'}
             </div>
-            <div className="truncate text-xs text-muted-foreground">
-              {projectTitle}
-            </div>
+            {!compact && (
+              <div className="truncate text-xs text-muted-foreground">
+                {projectTitle}
+              </div>
+            )}
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {nextTask && onNavigateToChat && (
+          {nextTask && onNavigateToChat && !compact && (
             <Button
               size="sm"
               className="hidden rounded-full text-white shadow-[0_10px_24px_rgba(14,165,233,0.28)] sm:inline-flex bg-gradient-to-r from-cyan-500 via-sky-500 to-emerald-500 hover:from-cyan-400 hover:via-sky-400 hover:to-emerald-400"
@@ -2690,8 +2801,8 @@ function ResearchLab({ selectedProject, onNavigateToChat }) {
       </div>
 
       <ScrollArea className="flex-1">
-        <div className="mx-auto max-w-[1480px] p-4 sm:p-6">
-          {!guideDismissed ? (
+        <div className={compact ? "p-3" : "mx-auto max-w-[1480px] p-4 sm:p-6"}>
+          {!compact && !guideDismissed ? (
             <div className="mb-6">
               <UsageGuideNotice
                 t={t}
@@ -2703,29 +2814,34 @@ function ResearchLab({ selectedProject, onNavigateToChat }) {
             </div>
           ) : null}
 
-          <section className="relative overflow-hidden rounded-[36px] border border-border/60 bg-[radial-gradient(circle_at_top_left,rgba(125,211,252,0.28),transparent_34%),linear-gradient(135deg,rgba(248,250,252,0.96),rgba(240,249,255,0.90))] p-6 shadow-[0_24px_60px_rgba(15,23,42,0.08)] dark:bg-[radial-gradient(circle_at_top_left,rgba(56,189,248,0.18),transparent_34%),linear-gradient(135deg,rgba(2,6,23,0.96),rgba(15,23,42,0.92))] dark:shadow-[0_28px_70px_rgba(2,6,23,0.45)] sm:p-7">
+          <section className={`relative overflow-hidden border border-border/60 bg-[radial-gradient(circle_at_top_left,rgba(125,211,252,0.28),transparent_34%),linear-gradient(135deg,rgba(248,250,252,0.96),rgba(240,249,255,0.90))] shadow-[0_24px_60px_rgba(15,23,42,0.08)] dark:bg-[radial-gradient(circle_at_top_left,rgba(56,189,248,0.18),transparent_34%),linear-gradient(135deg,rgba(2,6,23,0.96),rgba(15,23,42,0.92))] dark:shadow-[0_28px_70px_rgba(2,6,23,0.45)] ${compact ? 'rounded-2xl p-3' : 'rounded-[36px] p-6 sm:p-7'}`}>
             <div className="absolute -right-10 -top-10 h-44 w-44 rounded-full bg-sky-200/50 blur-3xl dark:bg-sky-500/15" />
             <div className="absolute bottom-0 right-24 h-28 w-28 rounded-full bg-emerald-200/40 blur-2xl dark:bg-emerald-500/10" />
-            <div className="relative grid gap-6 xl:grid-cols-[minmax(0,1.3fr)_minmax(320px,0.9fr)]">
+            <div className={`relative grid ${compact ? 'gap-3' : 'gap-6'} ${compact ? '' : 'xl:grid-cols-[minmax(0,1.3fr)_minmax(320px,0.9fr)]'}`}>
               <div className="min-w-0">
-                <div className="inline-flex items-center gap-2 rounded-full border border-sky-200/70 bg-white/80 px-3 py-1 text-xs font-medium uppercase tracking-[0.24em] text-sky-700 shadow-sm dark:border-sky-900/70 dark:bg-slate-950/50 dark:text-sky-200">
-                  <Sparkles className="h-3.5 w-3.5" />
-                  Live Research Workspace
-                </div>
-                <h2 className="mt-4 text-3xl font-semibold tracking-tight text-foreground sm:text-4xl">
+                {!compact && (
+                  <div className="inline-flex items-center gap-2 rounded-full border border-sky-200/70 bg-white/80 px-3 py-1 text-xs font-medium uppercase tracking-[0.24em] text-sky-700 shadow-sm dark:border-sky-900/70 dark:bg-slate-950/50 dark:text-sky-200">
+                    <Sparkles className="h-3.5 w-3.5" />
+                    Live Research Workspace
+                  </div>
+                )}
+                <h2 className={`font-semibold tracking-tight text-foreground ${compact ? 'text-base' : 'mt-4 text-3xl sm:text-4xl'}`}>
                   {projectTitle}
                 </h2>
-                <p className="mt-3 max-w-3xl text-sm leading-6 text-muted-foreground sm:text-base">
-                  Track every stage of the research pipeline, review generated artifacts, and jump back into execution without leaving the lab view.
-                </p>
+                {!compact && (
+                  <p className="mt-3 max-w-3xl text-sm leading-6 text-muted-foreground sm:text-base">
+                    Track every stage of the research pipeline, review generated artifacts, and jump back into execution without leaving the lab view.
+                  </p>
+                )}
 
-                <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                <div className={`grid ${compact ? 'mt-3 grid-cols-2 gap-2' : 'mt-6 gap-3 sm:grid-cols-2 xl:grid-cols-4'}`}>
                   <ResearchMetricCard
                     icon={ListChecks}
                     label="Tasks"
                     value={taskSummary.total}
                     detail={taskSummary.total > 0 ? `${taskSummary.progress}% complete` : 'No pipeline tasks yet'}
                     accentClass="border-cyan-200/80 bg-cyan-100/80 text-cyan-700 dark:border-cyan-900/60 dark:bg-cyan-950/40 dark:text-cyan-200"
+                    compact={compact}
                   />
                   <ResearchMetricCard
                     icon={Target}
@@ -2733,6 +2849,7 @@ function ResearchLab({ selectedProject, onNavigateToChat }) {
                     value={taskSummary.done}
                     detail={taskSummary.inProgress > 0 ? `${taskSummary.inProgress} active now` : `${taskSummary.pending} pending`}
                     accentClass="border-emerald-200/80 bg-emerald-100/80 text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/40 dark:text-emerald-200"
+                    compact={compact}
                   />
                   <ResearchMetricCard
                     icon={Beaker}
@@ -2740,6 +2857,7 @@ function ResearchLab({ selectedProject, onNavigateToChat }) {
                     value={artifacts.length}
                     detail={artifacts.length > 0 ? `${liveStageCount} pipeline stages populated` : 'No outputs yet'}
                     accentClass="border-blue-200/80 bg-blue-100/80 text-blue-700 dark:border-blue-900/60 dark:bg-blue-950/40 dark:text-blue-200"
+                    compact={compact}
                   />
                   <ResearchMetricCard
                     icon={BookOpen}
@@ -2753,71 +2871,89 @@ function ResearchLab({ selectedProject, onNavigateToChat }) {
                         : 'No papers attached yet'
                     }
                     accentClass="border-amber-200/80 bg-amber-100/80 text-amber-700 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-200"
+                    compact={compact}
                   />
                 </div>
 
-                <div className="mt-6 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+                <div className={`grid ${compact ? 'mt-3 grid-cols-3 gap-1.5' : 'mt-6 gap-3 md:grid-cols-2 xl:grid-cols-5'}`}>
                   {pipelineStageOverview.map((stage) => (
-                    <PipelineStageChip key={stage.key} stage={stage} />
+                    <PipelineStageChip key={stage.key} stage={stage} compact={compact} />
                   ))}
                 </div>
               </div>
 
-              <div className="grid gap-4">
-                <div className="rounded-[28px] border border-border/60 bg-card/78 p-5 shadow-sm backdrop-blur">
-                  <div className="flex items-center gap-2 text-sm font-medium text-foreground">
-                    <MessageSquare className="h-4 w-4 text-primary" />
-                    Next Action
-                  </div>
-                  {nextTask ? (
-                    <div className="mt-4 rounded-2xl border border-border/60 bg-background/70 p-4 shadow-sm">
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ${TASK_STAGE_META[nextTask.stage]?.className || TASK_STAGE_META.unassigned.className}`}>
-                            {TASK_STAGE_META[nextTask.stage]?.label || TASK_STAGE_META.unassigned.label}
-                          </span>
-                          <div className="mt-3 text-lg font-semibold tracking-tight text-foreground">
-                            {nextTask.title || t('researchLabTaskBoard.untitledTask')}
+              <div className={`grid ${compact ? 'gap-2' : 'gap-4'}`}>
+                {nextTask ? (
+                  <div className={`group relative overflow-hidden border shadow-sm backdrop-blur ${compact ? 'rounded-xl p-3 border-cyan-300/50 dark:border-cyan-800/50' : 'rounded-[28px] p-5 border-cyan-200/60 dark:border-cyan-900/50'} bg-gradient-to-br from-cyan-50/80 via-card/90 to-sky-50/60 dark:from-cyan-950/30 dark:via-card/90 dark:to-sky-950/20`}>
+                    {/* Animated glow accent */}
+                    <div className="pointer-events-none absolute -right-8 -top-8 h-32 w-32 animate-pulse rounded-full bg-cyan-400/20 blur-2xl dark:bg-cyan-500/10" />
+                    <div className="pointer-events-none absolute -bottom-6 -left-6 h-24 w-24 animate-pulse rounded-full bg-sky-400/15 blur-2xl delay-700 dark:bg-sky-500/10" />
+
+                    <div className="relative">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+                          <div className="flex h-6 w-6 items-center justify-center rounded-lg bg-gradient-to-br from-cyan-500 to-sky-600 shadow-sm">
+                            <Sparkles className="h-3.5 w-3.5 text-white" />
                           </div>
-                          {nextTask.description ? (
-                            <p className="mt-2 text-sm leading-6 text-muted-foreground line-clamp-3">
-                              {nextTask.description}
-                            </p>
-                          ) : null}
+                          Next Action
                         </div>
-                        <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ${TASK_STATUS_META[nextTask.status]?.className || TASK_STATUS_META.pending.className}`}>
-                          {TASK_STATUS_META[nextTask.status]?.label || TASK_STATUS_META.pending.label}
+                        <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ${TASK_STAGE_META[nextTask.stage]?.className || TASK_STAGE_META.unassigned.className}`}>
+                          {TASK_STAGE_META[nextTask.stage]?.label || TASK_STAGE_META.unassigned.label}
                         </span>
                       </div>
-                      {onNavigateToChat && (
-                        <Button
-                          className="mt-4 rounded-full text-white bg-gradient-to-r from-cyan-500 via-sky-500 to-emerald-500 hover:from-cyan-400 hover:via-sky-400 hover:to-emerald-400"
-                          onClick={() => onNavigateToChat()}
+
+                      <div className={`font-semibold tracking-tight text-foreground ${compact ? 'mt-2 text-sm' : 'mt-3 text-lg'}`}>
+                        {nextTask.title || t('researchLabTaskBoard.untitledTask')}
+                      </div>
+                      {nextTask.description ? (
+                        <p className={`text-sm leading-6 text-muted-foreground ${compact ? 'mt-1 line-clamp-2' : 'mt-2 line-clamp-3'}`}>
+                          {nextTask.description}
+                        </p>
+                      ) : null}
+
+                      {(onStartTask || onNavigateToChat) && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            // Legacy tasks store prompt at top level; newer ones nest it under guidance
+                            const prompt = nextTask.nextActionPrompt || nextTask.guidance?.nextActionPrompt || '';
+                            if (onStartTask) {
+                              onStartTask(prompt, nextTask);
+                              if (onNavigateToChat) onNavigateToChat();
+                            } else if (onNavigateToChat) {
+                              onNavigateToChat();
+                            }
+                          }}
+                          className={`relative inline-flex items-center gap-2 overflow-hidden rounded-full font-semibold text-white shadow-[0_0_20px_rgba(14,165,233,0.35)] transition-all duration-300 hover:shadow-[0_0_30px_rgba(14,165,233,0.5)] hover:scale-[1.03] active:scale-[0.98] bg-gradient-to-r from-cyan-500 via-sky-500 to-emerald-500 hover:from-cyan-400 hover:via-sky-400 hover:to-emerald-400 ${compact ? 'mt-3 px-4 py-2 text-xs' : 'mt-4 px-5 py-2.5 text-sm'}`}
                         >
-                          <Sparkles className="mr-1.5 h-4 w-4" />
-                          Go to Chat
-                        </Button>
+                          {/* Shine sweep animation */}
+                          <span className="pointer-events-none absolute inset-0 -translate-x-full animate-shimmer bg-gradient-to-r from-transparent via-white/30 to-transparent" />
+                          <Sparkles className={`relative ${compact ? 'h-3.5 w-3.5' : 'h-4 w-4'}`} />
+                          <span className="relative">Run Next Task</span>
+                        </button>
                       )}
                     </div>
-                  ) : (
-                    <div className="mt-4 rounded-2xl border border-dashed border-border/60 bg-background/60 px-4 py-5 text-sm text-muted-foreground">
+                  </div>
+                ) : (
+                  <div className={`border border-border/60 bg-card/78 shadow-sm backdrop-blur ${compact ? 'rounded-xl p-3' : 'rounded-[28px] p-5'}`}>
+                    <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+                      <MessageSquare className="h-4 w-4 text-primary" />
+                      Next Action
+                    </div>
+                    <div className={`border border-dashed border-border/60 bg-background/60 text-sm text-muted-foreground ${compact ? 'mt-2 rounded-xl px-3 py-3' : 'mt-4 rounded-2xl px-4 py-5'}`}>
                       Generate or sync the task pipeline in Chat, then return here to continue execution.
                     </div>
-                  )}
-                </div>
+                  </div>
+                )}
               </div>
             </div>
           </section>
 
-          <div className="mt-6 grid items-start gap-6 xl:grid-cols-[minmax(0,1.05fr)_420px]">
-            <div className="min-w-0 space-y-6">
-              <div className={`grid items-stretch gap-6 ${sourcePapers.length > 0 ? 'lg:grid-cols-2' : ''}`}>
-                <OverviewCard instance={instance} config={config} researchBrief={researchBrief} />
-                {sourcePapers.length > 0 ? <PapersCard papers={sourcePapers} /> : null}
-              </div>
-
-              <div className="xl:hidden">
-                {sidebar}
+          <div className={`grid items-start ${compact ? 'mt-3 gap-3' : 'mt-6 gap-6'} ${compact ? '' : 'xl:grid-cols-[minmax(0,1.05fr)_420px]'}`}>
+            <div className={`min-w-0 ${compact ? 'space-y-3' : 'space-y-6'}`}>
+              <div className={`grid items-stretch ${compact ? 'gap-3' : 'gap-6'} ${sourcePapers.length > 0 && !compact ? 'lg:grid-cols-2' : ''}`}>
+                <OverviewCard instance={instance} config={config} researchBrief={researchBrief} compact={compact} />
+                {sourcePapers.length > 0 ? <PapersCard papers={sourcePapers} compact={compact} /> : null}
               </div>
 
               <TaskPipelineBoard
@@ -2826,7 +2962,12 @@ function ResearchLab({ selectedProject, onNavigateToChat }) {
                 onNavigateToChat={onNavigateToChat}
                 projectName={projectName}
                 onTaskUpdated={loadData}
+                compact={compact}
               />
+
+              <div className={compact ? '' : 'xl:hidden'}>
+                {sidebar}
+              </div>
 
               <SessionStageBoard
                 projectTags={projectTags}
@@ -2834,18 +2975,21 @@ function ResearchLab({ selectedProject, onNavigateToChat }) {
                 sessionTagsById={sessionTagsById}
                 savingSessionId={savingSessionId}
                 onToggleStageTag={handleToggleSessionStageTag}
+                compact={compact}
               />
 
               <IdeaCard
                 projectName={projectName}
                 config={config}
                 projectFileSet={projectFileSet}
+                compact={compact}
               />
 
               {hasPaperPreview ? (
                 <PaperCard
                   projectName={projectName}
                   projectRoot={projectRoot}
+                  compact={compact}
                 />
               ) : null}
 
@@ -2866,9 +3010,11 @@ function ResearchLab({ selectedProject, onNavigateToChat }) {
               )}
             </div>
 
-            <div className="hidden xl:block xl:sticky xl:top-6">
-              {sidebar}
-            </div>
+            {!compact && (
+              <div className="hidden xl:block xl:sticky xl:top-6">
+                {sidebar}
+              </div>
+            )}
           </div>
         </div>
       </ScrollArea>

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { MouseEvent as ReactMouseEvent } from 'react';
 import type { Project } from '../../../types/app';
 import type { DiffInfo, EditingFile } from '../types/types';
+import { normalizePath, toRelativePath, fileNameFromPath } from '../../../utils/pathUtils';
 
 type UseEditorSidebarOptions = {
   selectedProject: Project | null;
@@ -23,12 +24,9 @@ export function useEditorSidebar({
 
   const handleFileOpen = useCallback(
     (filePath: string, diffInfo: DiffInfo | null = null) => {
-      const normalizedPath = filePath.replace(/\\/g, '/');
-      const normalizedRoot = projectRoot.replace(/\\/g, '/').replace(/\/$/, '');
-      const relativePath = normalizedRoot && normalizedPath.startsWith(`${normalizedRoot}/`)
-        ? normalizedPath.slice(normalizedRoot.length + 1)
-        : filePath;
-      const fileName = normalizedPath.split('/').pop() || filePath;
+      const relativePath = toRelativePath(filePath, projectRoot);
+      if (!relativePath) return;
+      const fileName = fileNameFromPath(normalizePath(filePath));
 
       setEditingFile({
         name: fileName,

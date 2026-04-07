@@ -68,6 +68,16 @@ import { open } from 'sqlite';
 import os from 'os';
 import { stripInternalContextPrefix } from './utils/sessionFormatting.js';
 import {
+  buildToolResultMessage,
+  buildToolUseMessage,
+  extractTextContent,
+  normalizeCodexCustomToolCall,
+  normalizeCodexFunctionCall,
+  normalizeExecCommandEvent,
+  normalizePatchApplyEvent,
+  normalizeWebSearchCall,
+} from './utils/codexSessionMessages.js';
+import {
   extractSessionModeFromMetadata,
   extractSessionModeFromText,
   inferSessionModeFromUserMessage,
@@ -84,6 +94,8 @@ const CURRENT_DEFAULT_WORKSPACES_ROOT = path.join(os.homedir(), 'dr-claw');
 const DELETED_PROJECTS_CONFIG_KEY = '_deletedProjects';
 
 let projectConfigMutationQueue = Promise.resolve();
+const _lastBootstrapByUser = new Map(); // userId -> timestamp
+const BOOTSTRAP_STALENESS_MS = 60_000; // Only re-scan legacy sources every 60 seconds
 
 function isProjectTrashed(projectInfo = null, dbEntry = null) {
   return Boolean(projectInfo?.trash?.trashedAt || dbEntry?.metadata?.trash?.trashedAt);
@@ -233,6 +245,120 @@ async function bootstrapProjectsIndexFromLegacySources(config, projectDb, userId
   }
 
   return seededCount;
+}
+
+function collectCodexProjectCandidates(sessionsByProject = new Map()) {
+  const candidatesByProject = new Map();
+
+  for (const sessions of sessionsByProject.values()) {
+    if (!Array.isArray(sessions) || sessions.length === 0) {
+      continue;
+    }
+
+    const projectPath = sessions.find((session) => typeof session?.cwd === 'string' && session.cwd.trim())?.cwd?.trim();
+    if (!projectPath) {
+      continue;
+    }
+
+    const projectName = encodeProjectPath(projectPath);
+    if (!projectName) {
+      continue;
+    }
+
+    if (!candidatesByProject.has(projectName)) {
+      candidatesByProject.set(projectName, {
+        projectName,
+        projectPath,
+        sessions: [],
+      });
+    }
+
+    const candidate = candidatesByProject.get(projectName);
+    const sessionIds = new Set(candidate.sessions.map((session) => session.id));
+
+    for (const session of sessions) {
+      if (!session?.id || sessionIds.has(session.id)) {
+        continue;
+      }
+
+      candidate.sessions.push(session);
+      sessionIds.add(session.id);
+    }
+  }
+
+  return Array.from(candidatesByProject.values());
+}
+
+const CODEX_SYNC_COOLDOWN_MS = 30_000;
+let lastCodexSyncTimestamp = 0;
+
+async function syncDiscoveredProjectsFromCodexSessions(config, projectDb, userId = null, visibleWorkspaceRoots = []) {
+  const now = Date.now();
+  if (now - lastCodexSyncTimestamp < CODEX_SYNC_COOLDOWN_MS) {
+    return 0;
+  }
+
+  const { sessionDb } = await import('./database/db.js');
+  const discoveredSessions = await buildCodexSessionsIndex();
+  const candidates = collectCodexProjectCandidates(discoveredSessions);
+  let syncedProjects = 0;
+
+  for (const candidate of candidates) {
+    const { projectName, projectPath, sessions } = candidate;
+
+    if (!projectPath || !await pathExists(projectPath)) {
+      continue;
+    }
+
+    if (visibleWorkspaceRoots.length > 0 && !await isPathWithinWorkspaceRoots(projectPath, visibleWorkspaceRoots)) {
+      continue;
+    }
+
+    const projectInfo = config[projectName];
+    const existing = projectDb.getProjectById(projectName);
+    if (isProjectSuppressed(projectName, config, projectInfo) || isProjectTrashed(projectInfo, existing)) {
+      continue;
+    }
+
+    const ownerUserId = existing?.user_id ?? getProjectOwnerUserId(projectInfo, existing) ?? userId ?? null;
+    const metadata = { ...(existing?.metadata || {}) };
+
+    if (projectInfo?.trash?.trashedAt) {
+      metadata.trash = {
+        ...projectInfo.trash,
+        ownerUserId: projectInfo.trash.ownerUserId ?? ownerUserId,
+      };
+    }
+
+    projectDb.upsertProject(
+      projectName,
+      ownerUserId,
+      existing?.display_name || projectInfo?.displayName || null,
+      projectPath,
+      existing?.is_starred || 0,
+      existing?.last_accessed || null,
+      Object.keys(metadata).length > 0 ? metadata : null,
+    );
+
+    for (const session of sessions) {
+      sessionDb.upsertSessionFromSource(session.id, projectName, 'codex', {
+        displayName: session.summary || session.name || 'Codex Session',
+        lastActivity: session.lastActivity || new Date(),
+        messageCount: session.messageCount || 0,
+        createdAt: session.createdAt || session.lastActivity || new Date(),
+        metadata: {
+          projectPath,
+          sessionMode: normalizeSessionMode(session.mode),
+          indexState: 'synced',
+        },
+      });
+    }
+
+    syncedProjects += 1;
+  }
+
+  lastCodexSyncTimestamp = Date.now();
+  return syncedProjects;
 }
 
 function buildTrashEntry(projectName, projectInfo = null, dbEntry = null) {
@@ -1235,18 +1361,22 @@ async function getProjects(userId, progressCallback = null) {
   let totalProjects = 0;
   let processedProjects = 0;
 
-  let dbProjects = projectDb.getAllProjects(userId || null);
-  if (dbProjects.length === 0) {
-    const seededCount = await bootstrapProjectsIndexFromLegacySources(
+  // Sync from legacy sources so CLI-created projects appear in the web UI.
+  // Only re-scan if the last bootstrap was more than 60 seconds ago to avoid
+  // O(N) filesystem walks on every getProjects() call. See #86.
+  const now = Date.now();
+  const userKey = userId || '__anonymous__';
+  if (now - (_lastBootstrapByUser.get(userKey) || 0) > BOOTSTRAP_STALENESS_MS) {
+    await bootstrapProjectsIndexFromLegacySources(
       config,
       projectDb,
       userId || null,
       visibleWorkspaceRoots,
     );
-    if (seededCount > 0) {
-      dbProjects = projectDb.getAllProjects(userId || null);
-    }
+    _lastBootstrapByUser.set(userKey, now);
   }
+  await syncDiscoveredProjectsFromCodexSessions(config, projectDb, userId || null, visibleWorkspaceRoots);
+  const dbProjects = projectDb.getAllProjects(userId || null);
 
   try {
     const visibleProjects = [];
@@ -2900,38 +3030,63 @@ async function addProjectManually(projectPath, displayName = null, userId = null
 
   const projectName = encodeProjectPath(absolutePath);
 
-  // Check for existing project with the same path (may have legacy encoded ID)
-  const existingByPath = projectDb.getProjectByPath(absolutePath, userId);
-  if (existingByPath) {
-    if (existingByPath.id !== projectName) {
-      // Legacy ID detected — migrate to new encoding
-      projectDb.migrateProjectIdentity(existingByPath.id, projectName, absolutePath);
+  // Check for existing project with the same path (any user or matching user).
+  // A single lookup handles both same-user exact match and cross-user dedup.
+  const existing = projectDb.getProjectByPath(absolutePath, userId);
+
+  if (existing) {
+    // Migrate legacy encoded IDs if needed
+    if (existing.id !== projectName) {
+      projectDb.migrateProjectIdentity(existing.id, projectName, absolutePath);
     }
-    return {
-      name: projectName,
-      path: absolutePath,
-      fullPath: absolutePath,
-      displayName: displayName || existingByPath.display_name || await generateDisplayName(projectName, absolutePath),
-      isManuallyAdded: Boolean(existingByPath.metadata?.manuallyAdded),
-      createdAt: existingByPath.created_at,
-      sessions: [],
-      cursorSessions: [],
-      alreadyExists: true,
-    };
+
+    // If the existing record already belongs to this user, mark as manually
+    // added and return without creating a duplicate.
+    if (existing.user_id === userId || existing.user_id == null) {
+      // Preserve existing values while marking as manually added
+      const mergedMetadata = { ...(existing.metadata || {}), manuallyAdded: true };
+      projectDb.upsertProject(
+        projectName, userId,
+        displayName || existing.display_name,
+        absolutePath,
+        existing.is_starred || 0,
+        existing.last_accessed || new Date().toISOString(),
+        mergedMetadata,
+      );
+
+      return {
+        name: projectName,
+        path: absolutePath,
+        fullPath: absolutePath,
+        displayName: displayName || existing.display_name || await generateDisplayName(projectName, absolutePath),
+        isManuallyAdded: true,
+        createdAt: existing.created_at,
+        sessions: [],
+        cursorSessions: [],
+        alreadyExists: true,
+      };
+    }
   }
 
-  projectDb.upsertProject(projectName, userId, displayName, absolutePath, 0, new Date().toISOString(), { manuallyAdded: true });
+  const effectiveId = existing ? existing.id : projectName;
+
+  // Preserve existing values so the upsert doesn't silently clear them
+  const preservedStarred = existing?.is_starred || 0;
+  const mergedMetadata = { ...(existing?.metadata || {}), manuallyAdded: true };
+  const preservedLastAccessed = existing?.last_accessed || new Date().toISOString();
+
+  projectDb.upsertProject(effectiveId, userId, displayName, absolutePath, preservedStarred, preservedLastAccessed, mergedMetadata);
 
   await mutateProjectConfig((config) => {
-    config[projectName] = {
-      ...(config[projectName] || {}),
+    config[effectiveId] = {
+      ...(config[effectiveId] || {}),
       manuallyAdded: true,
       originalPath: absolutePath,
-      ownerUserId: config[projectName]?.ownerUserId ?? userId ?? null,
+      ownerUserId: config[effectiveId]?.ownerUserId ?? userId ?? null,
     };
 
     if (displayName) {
-      config[projectName].displayName = displayName;
+      config[effectiveId].displayName = displayName;
     }
   });
 
@@ -2944,10 +3099,10 @@ async function addProjectManually(projectPath, displayName = null, userId = null
   } catch (_) {}
 
   return {
-    name: projectName,
+    name: effectiveId,
     path: absolutePath,
     fullPath: absolutePath,
-    displayName: displayName || await generateDisplayName(projectName, absolutePath),
+    displayName: displayName || await generateDisplayName(effectiveId, absolutePath),
     isManuallyAdded: true,
     createdAt: dirCreatedAt,
     sessions: [],
@@ -3585,26 +3740,32 @@ async function getCodexSessionMessages(sessionId, limit = null, offset = 0) {
   try {
     const codexSessionsDir = path.join(os.homedir(), '.codex', 'sessions');
 
-    // Find the session file by searching for the session ID
-    const findSessionFile = async (dir) => {
-      try {
-        const entries = await fs.readdir(dir, { withFileTypes: true });
-        for (const entry of entries) {
-          const fullPath = path.join(dir, entry.name);
-          if (entry.isDirectory()) {
-            const found = await findSessionFile(fullPath);
-            if (found) return found;
-          } else if (entry.name.includes(sessionId) && entry.name.endsWith('.jsonl')) {
-            return fullPath;
-          }
+    const findSessionFileByMetadata = async () => {
+      const jsonlFiles = await findCodexJsonlFiles(codexSessionsDir);
+
+      let filenameMatch = null;
+      for (const filePath of jsonlFiles) {
+        if (path.basename(filePath).includes(sessionId)) {
+          filenameMatch = filePath;
+          break;
         }
-      } catch (error) {
-        // Skip directories we can't read
       }
+
+      if (filenameMatch) {
+        return filenameMatch;
+      }
+
+      for (const filePath of jsonlFiles) {
+        const sessionData = await parseCodexSessionFile(filePath);
+        if (sessionData?.id === sessionId) {
+          return filePath;
+        }
+      }
+
       return null;
     };
 
-    const sessionFilePath = await findSessionFile(codexSessionsDir);
+    const sessionFilePath = await findSessionFileByMetadata();
 
     if (!sessionFilePath) {
       console.warn(`Codex session file not found for session ${sessionId}`);
@@ -3613,27 +3774,46 @@ async function getCodexSessionMessages(sessionId, limit = null, offset = 0) {
 
     const messages = [];
     let tokenUsage = null;
+    const toolUseIndexByCallId = new Map();
+    const toolResultIndexByCallId = new Map();
     const fileStream = fsSync.createReadStream(sessionFilePath);
     const rl = readline.createInterface({
       input: fileStream,
       crlfDelay: Infinity
     });
 
-    // Helper to extract text from Codex content array
-    const extractText = (content) => {
-      if (!Array.isArray(content)) return content;
-      return content
-        .map(item => {
-          if (item.type === 'input_text' || item.type === 'output_text') {
-            return item.text;
-          }
-          if (item.type === 'text') {
-            return item.text;
-          }
-          return '';
-        })
-        .filter(Boolean)
-        .join('\n');
+    const upsertToolUse = (nextMessage) => {
+      const callId = nextMessage?.toolCallId;
+      if (callId && toolUseIndexByCallId.has(callId)) {
+        const existingIndex = toolUseIndexByCallId.get(callId);
+        messages[existingIndex] = {
+          ...messages[existingIndex],
+          ...nextMessage,
+        };
+        return;
+      }
+
+      const nextIndex = messages.push(nextMessage) - 1;
+      if (callId) {
+        toolUseIndexByCallId.set(callId, nextIndex);
+      }
+    };
+
+    const upsertToolResult = (nextMessage) => {
+      const callId = nextMessage?.toolCallId;
+      if (callId && toolResultIndexByCallId.has(callId)) {
+        const existingIndex = toolResultIndexByCallId.get(callId);
+        messages[existingIndex] = {
+          ...messages[existingIndex],
+          ...nextMessage,
+        };
+        return;
+      }
+
+      const nextIndex = messages.push(nextMessage) - 1;
+      if (callId) {
+        toolResultIndexByCallId.set(callId, nextIndex);
+      }
     };
 
     for await (const line of rl) {
@@ -3656,7 +3836,7 @@ async function getCodexSessionMessages(sessionId, limit = null, offset = 0) {
           if (entry.type === 'response_item' && entry.payload?.type === 'message') {
             const content = entry.payload.content;
             const role = entry.payload.role || 'assistant';
-            const textContent = extractText(content);
+            const textContent = extractTextContent(content);
 
             // Skip system context messages (environment_context)
             if (textContent?.includes('<environment_context>')) {
@@ -3684,89 +3864,113 @@ async function getCodexSessionMessages(sessionId, limit = null, offset = 0) {
           // Skip Codex reasoning items - they are brief status notes, not useful to display
 
           if (entry.type === 'response_item' && entry.payload?.type === 'function_call') {
-            let toolName = entry.payload.name;
-            let toolInput = entry.payload.arguments;
-
-            // Map Codex tool names to Claude equivalents
-            if (toolName === 'shell_command') {
-              toolName = 'Bash';
-              try {
-                const args = JSON.parse(entry.payload.arguments);
-                toolInput = JSON.stringify({ command: args.command });
-              } catch (e) {
-                // Keep original if parsing fails
-              }
+            const normalized = normalizeCodexFunctionCall(entry.payload.name, entry.payload.arguments);
+            if (!normalized.skip) {
+              upsertToolUse(buildToolUseMessage(
+                entry.timestamp,
+                normalized.toolName,
+                normalized.toolInput,
+                entry.payload.call_id,
+              ));
             }
-
-            messages.push({
-              type: 'tool_use',
-              timestamp: entry.timestamp,
-              toolName: toolName,
-              toolInput: toolInput,
-              toolCallId: entry.payload.call_id
-            });
           }
 
           if (entry.type === 'response_item' && entry.payload?.type === 'function_call_output') {
-            messages.push({
-              type: 'tool_result',
-              timestamp: entry.timestamp,
-              toolCallId: entry.payload.call_id,
-              output: entry.payload.output
-            });
+            upsertToolResult(buildToolResultMessage(
+              entry.timestamp,
+              entry.payload.call_id,
+              entry.payload.output,
+            ));
           }
 
           if (entry.type === 'response_item' && entry.payload?.type === 'custom_tool_call') {
-            const toolName = entry.payload.name || 'custom_tool';
-            const input = entry.payload.input || '';
-
-            if (toolName === 'apply_patch') {
-              // Parse Codex patch format and convert to Claude Edit format
-              const fileMatch = input.match(/\*\*\* Update File: (.+)/);
-              const filePath = fileMatch ? fileMatch[1].trim() : 'unknown';
-
-              // Extract old and new content from patch
-              const lines = input.split('\n');
-              const oldLines = [];
-              const newLines = [];
-
-              for (const line of lines) {
-                if (line.startsWith('-') && !line.startsWith('---')) {
-                  oldLines.push(line.substring(1));
-                } else if (line.startsWith('+') && !line.startsWith('+++')) {
-                  newLines.push(line.substring(1));
-                }
-              }
-
-              messages.push({
-                type: 'tool_use',
-                timestamp: entry.timestamp,
-                toolName: 'Edit',
-                toolInput: JSON.stringify({
-                  file_path: filePath,
-                  old_string: oldLines.join('\n'),
-                  new_string: newLines.join('\n')
-                }),
-                toolCallId: entry.payload.call_id
-              });
-            } else {
-              messages.push({
-                type: 'tool_use',
-                timestamp: entry.timestamp,
-                toolName: toolName,
-                toolInput: input,
-                toolCallId: entry.payload.call_id
-              });
-            }
+            const normalized = normalizeCodexCustomToolCall(entry.payload.name, entry.payload.input);
+            upsertToolUse(buildToolUseMessage(
+              entry.timestamp,
+              normalized.toolName,
+              normalized.toolInput,
+              entry.payload.call_id,
+            ));
           }
 
           if (entry.type === 'response_item' && entry.payload?.type === 'custom_tool_call_output') {
+            upsertToolResult(buildToolResultMessage(
+              entry.timestamp,
+              entry.payload.call_id,
+              entry.payload.output || '',
+            ));
+          }
+
+          // web_search_call events are self-contained display items — no separate result
+          // event and no call_id in the payload. We push directly instead of upsertToolUse
+          // because there is no toolCallId to match against a future tool_result.
+          if (entry.type === 'response_item' && entry.payload?.type === 'web_search_call') {
+            const normalized = normalizeWebSearchCall(entry.payload);
             messages.push({
-              type: 'tool_result',
+              type: 'tool_use',
               timestamp: entry.timestamp,
-              toolCallId: entry.payload.call_id,
-              output: entry.payload.output || ''
+              toolName: normalized.toolName,
+              toolInput: normalized.toolInput,
             });
+          }
+
+          if (entry.type === 'event_msg' && entry.payload?.type === 'exec_command_end' && entry.payload?.call_id) {
+            const toolUseIndex = toolUseIndexByCallId.get(entry.payload.call_id);
+            const existingToolUse = toolUseIndex !== undefined ? messages[toolUseIndex] : null;
+            let fallbackInput = null;
+            if (existingToolUse?.toolInput) {
+              try {
+                fallbackInput = JSON.parse(existingToolUse.toolInput);
+              } catch {
+                fallbackInput = null;
+              }
+            }
+            const normalized = normalizeExecCommandEvent(entry.payload, fallbackInput);
+
+            upsertToolUse(buildToolUseMessage(
+              entry.timestamp,
+              normalized.toolName,
+              normalized.toolInput,
+              entry.payload.call_id,
+            ));
+            upsertToolResult(buildToolResultMessage(
+              entry.timestamp,
+              entry.payload.call_id,
+              normalized.toolResult?.content || '',
+              {
+                isError: normalized.toolResult?.isError === true,
+                toolUseResult: normalized.toolResult?.toolUseResult || null,
+              },
+            ));
+          }
+
+          if (entry.type === 'event_msg' && entry.payload?.type === 'patch_apply_end' && entry.payload?.call_id) {
+            const normalized = normalizePatchApplyEvent(entry.payload);
+            upsertToolResult(buildToolResultMessage(
+              entry.timestamp,
+              entry.payload.call_id,
+              normalized.toolResult.content,
+              {
+                isError: normalized.toolResult.isError === true,
+                toolUseResult: normalized.toolResult.toolUseResult,
+              },
+            ));
+
+            if (normalized.fileChangesToolInput) {
+              messages.push({
+                type: 'tool_use',
+                timestamp: entry.timestamp,
+                toolName: 'FileChanges',
+                toolInput: normalized.fileChangesToolInput,
+                toolCallId: `${entry.payload.call_id}:files`,
+              });
+              messages.push({
+                type: 'tool_result',
+                timestamp: entry.timestamp,
+                toolCallId: `${entry.payload.call_id}:files`,
+                output: entry.payload.status || 'completed',
+              });
+            }
           }
 
         } catch (parseError) {
@@ -4020,6 +4224,7 @@ export {
   getTrashedProjects,
   getSessions,
   getSessionMessages,
+  collectCodexProjectCandidates,
   parseJsonlSessions,
   renameProject,
   renameSession,

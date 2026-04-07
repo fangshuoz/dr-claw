@@ -45,6 +45,11 @@ pids
 *.seed
 *.pid.lock
 .runtime/
+.native-runtime.json
+.electron-gyp/
+.electron-cache/
+.electron-home/
+release/
 
 # Coverage directory used by tools like istanbul
 coverage/
@@ -150,7 +155,8 @@ server/data/
 # Search result files
 xhs_results.json
 *_results.json
-__pycache__
+__pycache__/
+*.py[cod]
 
 .pytest_cache
 *.egg-info/

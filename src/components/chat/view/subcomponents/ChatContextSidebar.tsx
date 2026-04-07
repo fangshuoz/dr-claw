@@ -9,11 +9,19 @@ import {
   Eye,
   EyeOff,
   ExternalLink,
+  File,
   FileOutput,
+  FlaskConical,
+  Folder,
   FolderSearch,
   Loader2,
+  X,
+  Zap,
   type LucideIcon,
 } from 'lucide-react';
+
+import ResearchLab from '../../../ResearchLab';
+import FileTree from '../../../FileTree';
 
 import { cn } from '../../../../lib/utils';
 import { authenticatedFetch, api } from '../../../../utils/api';
@@ -25,8 +33,11 @@ import {
   mergeDistinctChatMessages,
   type SessionContextFileItem,
   type SessionContextOutputItem,
+  type SessionContextTaskItem,
   type SessionReviewState,
 } from '../../utils/sessionContextSummary';
+import ChatContextFilePreview from './ChatContextFilePreview';
+import FileThumbnail from './FileThumbnail';
 
 type ReviewFilter = 'all' | 'unread' | 'reviewed';
 type SidebarSectionKey = 'context' | 'tasks' | 'review';
@@ -65,6 +76,8 @@ const SECTION_STYLES: Record<SectionTone, {
   },
 };
 
+type SidebarTab = 'context' | 'research' | 'files';
+
 interface ChatContextSidebarProps {
   selectedProject: Project | null;
   selectedSession: ProjectSession | null;
@@ -73,6 +86,10 @@ interface ChatContextSidebarProps {
   newSessionMode?: SessionMode;
   chatMessages: ChatMessage[];
   onFileOpen?: (filePath: string, diffInfo?: unknown) => void;
+  activeSidebarTab?: SidebarTab;
+  onSidebarTabChange?: (tab: SidebarTab) => void;
+  onStartWorkspaceQa?: (project: Project, prompt: string) => void;
+  onStartTask?: (prompt?: string, task?: { stage?: string } | null) => void;
 }
 
 const formatTimeLabel = (value: string, locale?: string) => {
@@ -184,6 +201,7 @@ const ItemButton = ({
   onClick,
   compact = false,
   action,
+  thumbnail,
 }: {
   label: string;
   secondaryLabel?: string;
@@ -193,6 +211,7 @@ const ItemButton = ({
   onClick?: () => void;
   compact?: boolean;
   action?: ReactNode;
+  thumbnail?: ReactNode;
 }) => {
   if (compact) {
     return (
@@ -202,13 +221,13 @@ const ItemButton = ({
         className="group w-full rounded-xl border border-border/60 bg-gradient-to-r from-background via-background to-muted/20 px-2.5 py-2 text-left shadow-sm transition-all hover:border-border hover:from-accent/20 hover:to-accent/10"
       >
         <div className="flex items-center gap-2.5">
-          <span className={cn('h-2 w-2 flex-shrink-0 rounded-full shadow-sm', unread ? 'bg-amber-500' : 'bg-emerald-500/80')} />
+          {thumbnail || <span className={cn('h-2 w-2 flex-shrink-0 rounded-full shadow-sm', unread ? 'bg-amber-500' : 'bg-emerald-500/80')} />}
           <div className="min-w-0 flex-1 truncate text-[12px] leading-5 text-foreground">
             <span className="font-semibold">{label}</span>
             {secondaryLabel ? <span className="text-[10px] text-muted-foreground">{` · ${secondaryLabel}`}</span> : null}
           </div>
           {meta ? <div className="flex flex-shrink-0 items-center gap-1 whitespace-nowrap pl-1">{meta}</div> : null}
-          {action ? <div className="flex-shrink-0">{action}</div> : null}
+          {action ? <div className="flex-shrink-0" onClick={(e) => e.stopPropagation()}>{action}</div> : null}
         </div>
       </button>
     );
@@ -221,11 +240,11 @@ const ItemButton = ({
       className="group w-full rounded-xl border border-border/60 bg-gradient-to-r from-background via-background to-muted/20 px-3 py-2 text-left shadow-sm transition-all hover:border-border hover:from-accent/20 hover:to-accent/10"
     >
       <div className="flex items-start gap-2">
-        <span className={`mt-1 h-2 w-2 flex-shrink-0 rounded-full ${unread ? 'bg-amber-500' : 'bg-emerald-500/70'}`} />
+        {thumbnail || <span className={`mt-1 h-2 w-2 flex-shrink-0 rounded-full ${unread ? 'bg-amber-500' : 'bg-emerald-500/70'}`} />}
         <div className="min-w-0 flex-1">
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0 flex-1 line-clamp-1 break-all text-sm font-semibold leading-5 text-foreground">{label}</div>
-            {action ? <div className="flex-shrink-0">{action}</div> : null}
+            {action ? <div className="flex-shrink-0" onClick={(e) => e.stopPropagation()}>{action}</div> : null}
           </div>
           {secondaryLabel && (
             <div className="mt-0.5 line-clamp-1 break-all text-[10px] text-muted-foreground">
@@ -256,6 +275,10 @@ export default function ChatContextSidebar({
   newSessionMode = 'research',
   chatMessages,
   onFileOpen,
+  activeSidebarTab = 'context',
+  onSidebarTabChange,
+  onStartWorkspaceQa,
+  onStartTask,
 }: ChatContextSidebarProps) {
   const { t, i18n } = useTranslation('chat');
   const [fetchedMessages, setFetchedMessages] = useState<ChatMessage[]>([]);
@@ -293,12 +316,25 @@ export default function ChatContextSidebar({
       return { context: false, tasks: false, review: false };
     }
   });
+  const [expandedLists, setExpandedLists] = useState<Record<string, boolean>>({});
   const [isResizing, setIsResizing] = useState(false);
+  const [previewFile, setPreviewFile] = useState<SessionContextFileItem | SessionContextOutputItem | null>(null);
+  const [previewTask, setPreviewTask] = useState<SessionContextTaskItem | null>(null);
   const asideRef = useRef<HTMLElement | null>(null);
+
+  const toggleListExpansion = useCallback((key: string) => {
+    setExpandedLists((prev) => ({ ...prev, [key]: !prev[key] }));
+  }, []);
 
   const effectiveSessionId = selectedSession?.id || currentSessionId || null;
   const effectiveProvider = (selectedSession?.__provider as SessionProvider | undefined) || provider;
   const projectName = selectedProject?.name || '';
+  const sessionProjectPath =
+    (typeof selectedSession?.cwd === 'string' && selectedSession.cwd.trim())
+    || (typeof selectedSession?.projectPath === 'string' && selectedSession.projectPath.trim())
+    || selectedProject?.fullPath
+    || selectedProject?.path
+    || '';
   const projectPath = selectedProject?.fullPath || selectedProject?.path || '';
 
   useEffect(() => {
@@ -399,8 +435,8 @@ export default function ChatContextSidebar({
   );
 
   const summary = useMemo(
-    () => deriveSessionContextSummary(mergedMessages, projectPath, reviews),
-    [mergedMessages, projectPath, reviews],
+    () => deriveSessionContextSummary(mergedMessages, sessionProjectPath, reviews),
+    [mergedMessages, reviews, sessionProjectPath],
   );
 
   const filteredOutputFiles = useMemo(() => {
@@ -412,7 +448,7 @@ export default function ChatContextSidebar({
     }
     return summary.outputFiles;
   }, [reviewFilter, summary.outputFiles]);
-  const contextItemCount = summary.contextFiles.length + summary.directories.length + summary.skills.length;
+  const contextItemCount = summary.contextFiles.length + summary.directories.length;
 
   const modeLabel = useMemo(() => {
     const mode = selectedSession?.mode || newSessionMode;
@@ -480,6 +516,20 @@ export default function ChatContextSidebar({
     }
     onFileOpen?.(openPath);
   }, [markFileReviewed, onFileOpen]);
+  const handleFilePreview = useCallback((file: SessionContextFileItem | SessionContextOutputItem) => {
+    if ('unread' in file && file.unread) {
+      void markFileReviewed(file as SessionContextOutputItem);
+    }
+    setPreviewFile(file);
+  }, [markFileReviewed]);
+  const handleClosePreview = useCallback(() => { setPreviewFile(null); setPreviewTask(null); }, []);
+  const handleOpenInEditor = useCallback((filePath: string) => {
+    setPreviewFile(null);
+    onFileOpen?.(filePath);
+  }, [onFileOpen]);
+  const handleTaskPreview = useCallback((task: SessionContextTaskItem) => {
+    setPreviewTask(task);
+  }, []);
   const toggleSection = useCallback((key: SidebarSectionKey) => {
     setCollapsedSections((current) => {
       const nextValue = { ...current, [key]: !current[key] };
@@ -520,10 +570,30 @@ export default function ChatContextSidebar({
 
   useEffect(() => {
     if (typeof window === 'undefined') {
-      return;
+      return undefined;
     }
-    window.localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(sidebarWidth));
+    const timer = setTimeout(() => {
+      try {
+        window.localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(sidebarWidth));
+      } catch {
+        // Ignore quota-exceeded or access-denied errors
+      }
+    }, 300);
+    return () => clearTimeout(timer);
   }, [sidebarWidth]);
+
+  useEffect(() => {
+    if (!previewFile && !previewTask) return undefined;
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.stopPropagation();
+        setPreviewFile(null);
+        setPreviewTask(null);
+      }
+    };
+    document.addEventListener('keydown', handleEscape);
+    return () => document.removeEventListener('keydown', handleEscape);
+  }, [previewFile, previewTask]);
 
   if (!selectedProject) {
     return null;
@@ -548,14 +618,35 @@ export default function ChatContextSidebar({
       >
       <div className="border-b border-border/60 px-4 py-3.5">
         <div className="flex items-center justify-between gap-3">
-          <div className="min-w-0">
-            <div className="text-sm font-semibold tracking-tight text-foreground">{t('sessionContext.title')}</div>
-            <div className="mt-1 max-w-[42ch] text-[11px] leading-5 text-muted-foreground">
-              {t('sessionContext.description')}
+          {!isCollapsed && (
+            <div className="inline-flex items-center bg-muted/60 rounded-lg p-[3px] gap-[2px]">
+              {([
+                { id: 'context' as SidebarTab, icon: FolderSearch, labelKey: 'sessionContext.sidebarTabs.context' },
+                { id: 'research' as SidebarTab, icon: FlaskConical, labelKey: 'sessionContext.sidebarTabs.research' },
+                { id: 'files' as SidebarTab, icon: Folder, labelKey: 'sessionContext.sidebarTabs.files' },
+              ]).map((tab) => {
+                const TabIcon = tab.icon;
+                const isActive = tab.id === activeSidebarTab;
+                return (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => onSidebarTabChange?.(tab.id)}
+                    className={`relative flex items-center gap-1.5 px-2.5 py-[5px] text-xs font-medium rounded-md transition-all duration-150 ${
+                      isActive
+                        ? 'bg-background text-foreground shadow-sm'
+                        : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    <TabIcon className="w-3.5 h-3.5" strokeWidth={isActive ? 2.2 : 1.8} />
+                    <span>{t(tab.labelKey)}</span>
+                  </button>
+                );
+              })}
             </div>
-          </div>
+          )}
           <div className="flex items-center gap-2">
-            {isLoadingTrace && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+            {isLoadingTrace && activeSidebarTab === 'context' && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
             <button
               type="button"
               onClick={toggleCollapsed}
@@ -567,20 +658,7 @@ export default function ChatContextSidebar({
           </div>
         </div>
 
-        {isCollapsed && (
-          <div className="mt-3 flex justify-center">
-            <button
-              type="button"
-              onClick={toggleCollapsed}
-            className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-border/70 bg-background/85 text-muted-foreground shadow-sm transition-colors hover:text-foreground"
-            title={t('sessionContext.actions.expand')}
-          >
-            <ChevronsLeft className="h-4 w-4" />
-          </button>
-          </div>
-        )}
-
-        {!isCollapsed && (
+        {!isCollapsed && activeSidebarTab === 'context' && (
           <>
 
         <div className="mt-3 grid grid-cols-4 gap-2">
@@ -606,17 +684,43 @@ export default function ChatContextSidebar({
       </div>
 
       {isCollapsed ? (
-        <div className="flex flex-1 items-start justify-center p-3 xl:pt-4">
-          <button
-            type="button"
-            onClick={toggleCollapsed}
-            className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-border/70 bg-background/85 text-muted-foreground shadow-sm transition-colors hover:text-foreground"
-            title={t('sessionContext.actions.expand')}
-          >
-            <FolderSearch className="h-4 w-4" />
-          </button>
+        <div className="flex flex-1 flex-col items-center gap-2 p-3 xl:pt-4">
+          {([
+            { id: 'context' as SidebarTab, icon: FolderSearch, labelKey: 'sessionContext.sidebarTabs.context' },
+            { id: 'research' as SidebarTab, icon: FlaskConical, labelKey: 'sessionContext.sidebarTabs.research' },
+            { id: 'files' as SidebarTab, icon: Folder, labelKey: 'sessionContext.sidebarTabs.files' },
+          ]).map((tab) => {
+            const TabIcon = tab.icon;
+            const isActive = tab.id === activeSidebarTab;
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => {
+                  onSidebarTabChange?.(tab.id);
+                  // Use the same state setter pattern as toggleCollapsed — the
+                  // setter persists to localStorage so we avoid split writes.
+                  setIsCollapsed((current) => {
+                    if (current && typeof window !== 'undefined') {
+                      window.localStorage.setItem(SIDEBAR_COLLAPSED_STORAGE_KEY, '0');
+                    }
+                    return false;
+                  });
+                }}
+                className={cn(
+                  'inline-flex h-10 w-10 items-center justify-center rounded-xl border shadow-sm transition-colors',
+                  isActive
+                    ? 'border-primary/30 bg-primary/10 text-foreground'
+                    : 'border-border/70 bg-background/85 text-muted-foreground hover:text-foreground',
+                )}
+                title={t(tab.labelKey)}
+              >
+                <TabIcon className="h-4 w-4" />
+              </button>
+            );
+          })}
         </div>
-      ) : (
+      ) : activeSidebarTab === 'context' ? (
       <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 py-4">
         <section className={`rounded-[22px] border p-3.5 shadow-sm ${SECTION_STYLES.context.panel} ${collapsedSections.context ? '' : 'flex min-h-[220px] flex-1 flex-col overflow-hidden'}`}>
           <SectionHeader
@@ -635,14 +739,15 @@ export default function ChatContextSidebar({
               </div>
             )}
 
-            {summary.contextFiles.slice(0, 6).map((file) => (
+            {(expandedLists.contextFiles ? summary.contextFiles : summary.contextFiles.slice(0, 6)).map((file) => (
               <ItemButton
                 key={file.key}
                 label={file.name}
                 secondaryLabel={file.relativePath}
                 compact
-                onClick={() => openContextFile(file)}
-                action={<OpenFileButton title={t('sessionContext.preview.open')} />}
+                onClick={() => handleFilePreview(file)}
+                thumbnail={<FileThumbnail projectName={projectName} absolutePath={file.absolutePath || file.relativePath} fileName={file.name} />}
+                action={<button type="button" onClick={() => openContextFile(file)}><OpenFileButton title={t('sessionContext.preview.open')} /></button>}
                 meta={
                   <>
                     {file.reasons[0] ? <ItemBadge>{file.reasons[0]}</ItemBadge> : null}
@@ -652,8 +757,13 @@ export default function ChatContextSidebar({
                 }
               />
             ))}
+            {summary.contextFiles.length > 6 && (
+              <button type="button" className="w-full rounded-lg px-2 py-1 text-[11px] font-medium text-muted-foreground hover:text-foreground transition-colors" onClick={() => toggleListExpansion('contextFiles')}>
+                {expandedLists.contextFiles ? t('sessionContext.showLess') : `${summary.contextFiles.length - 6} more...`}
+              </button>
+            )}
 
-            {summary.directories.slice(0, 3).map((entry) => (
+            {(expandedLists.directories ? summary.directories : summary.directories.slice(0, 3)).map((entry) => (
               <ItemButton
                 key={entry.key}
                 label={entry.label}
@@ -661,15 +771,40 @@ export default function ChatContextSidebar({
                 meta={<ItemBadge>{formatTimeLabel(entry.lastSeenAt, i18n.language)}</ItemBadge>}
               />
             ))}
+            {summary.directories.length > 3 && (
+              <button type="button" className="w-full rounded-lg px-2 py-1 text-[11px] font-medium text-muted-foreground hover:text-foreground transition-colors" onClick={() => toggleListExpansion('directories')}>
+                {expandedLists.directories ? t('sessionContext.showLess') : `${summary.directories.length - 3} more...`}
+              </button>
+            )}
 
-            {summary.skills.slice(0, 3).map((entry) => (
-              <ItemButton
-                key={entry.key}
-                label={entry.label}
-                detail={entry.detail}
-                meta={<ItemBadge>{formatTimeLabel(entry.lastSeenAt, i18n.language)}</ItemBadge>}
-              />
-            ))}
+            {summary.skills.length > 0 && (
+              <>
+                <div className="flex items-center gap-2 pt-2">
+                  <Zap className="h-3 w-3 text-violet-500" />
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-violet-600 dark:text-violet-400">
+                    {t('sessionContext.sections.skillsSubheader')}
+                  </span>
+                  <div className="h-px flex-1 bg-border/50" />
+                </div>
+                {(expandedLists.skills ? summary.skills : summary.skills.slice(0, 5)).map((entry) => (
+                  <div
+                    key={entry.key}
+                    className="flex items-center gap-2 rounded-lg border border-violet-200/60 bg-violet-50/30 px-2.5 py-1.5 dark:border-violet-900/40 dark:bg-violet-950/20"
+                  >
+                    <Zap className="h-3 w-3 flex-shrink-0 text-violet-500/80" />
+                    <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-foreground">
+                      {entry.label}
+                    </span>
+                    <ItemBadge>{formatTimeLabel(entry.lastSeenAt, i18n.language)}</ItemBadge>
+                  </div>
+                ))}
+                {summary.skills.length > 5 && (
+                  <button type="button" className="w-full rounded-lg px-2 py-1 text-[11px] font-medium text-muted-foreground hover:text-foreground transition-colors" onClick={() => toggleListExpansion('skills')}>
+                    {expandedLists.skills ? t('sessionContext.showLess') : `${summary.skills.length - 5} more...`}
+                  </button>
+                )}
+              </>
+            )}
           </div>
           )}
         </section>
@@ -690,10 +825,12 @@ export default function ChatContextSidebar({
                 {t('sessionContext.empty.taskContext')}
               </div>
             ) : (
-              summary.tasks.slice(0, 6).map((entry) => (
-              <div
+              (expandedLists.tasks ? summary.tasks : summary.tasks.slice(0, 6)).map((entry) => (
+              <button
+                  type="button"
                   key={entry.key}
-                  className="rounded-xl border border-border/60 bg-gradient-to-r from-background via-background to-sky-50/20 px-2.5 py-2 shadow-sm dark:to-sky-950/10"
+                  onClick={() => handleTaskPreview(entry)}
+                  className="group w-full rounded-xl border border-border/60 bg-gradient-to-r from-background via-background to-sky-50/20 px-2.5 py-2 text-left shadow-sm transition-all hover:border-border hover:from-accent/20 hover:to-accent/10 dark:to-sky-950/10"
                 >
                   <div className="flex items-center gap-2">
                     <span className="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-sky-500/70" />
@@ -710,8 +847,13 @@ export default function ChatContextSidebar({
                       <ItemBadge>{formatTimeLabel(entry.lastSeenAt, i18n.language)}</ItemBadge>
                     </div>
                   </div>
-                </div>
+                </button>
               ))
+            )}
+            {summary.tasks.length > 6 && (
+              <button type="button" className="w-full rounded-lg px-2 py-1 text-[11px] font-medium text-muted-foreground hover:text-foreground transition-colors" onClick={() => toggleListExpansion('tasks')}>
+                {expandedLists.tasks ? t('sessionContext.showLess') : `${summary.tasks.length - 6} more...`}
+              </button>
             )}
           </div>
           )}
@@ -756,17 +898,16 @@ export default function ChatContextSidebar({
                 {t('sessionContext.empty.reviewQueue')}
               </div>
             ) : (
-              filteredOutputFiles.slice(0, 8).map((file) => (
+              (expandedLists.outputFiles ? filteredOutputFiles : filteredOutputFiles.slice(0, 8)).map((file) => (
                 <ItemButton
                   key={file.key}
                   label={file.name}
                   secondaryLabel={file.relativePath}
                   unread={file.unread}
                   compact
-                  onClick={() => {
-                    void openReviewFile(file);
-                  }}
-                  action={<OpenFileButton title={t('sessionContext.preview.open')} />}
+                  onClick={() => handleFilePreview(file)}
+                  thumbnail={<FileThumbnail projectName={projectName} absolutePath={file.absolutePath || file.relativePath} fileName={file.name} />}
+                  action={<button type="button" onClick={() => { void openReviewFile(file); }}><OpenFileButton title={t('sessionContext.preview.open')} /></button>}
                   meta={
                     <>
                       {file.reasons[0] ? <ItemBadge>{file.reasons[0]}</ItemBadge> : null}
@@ -778,12 +919,89 @@ export default function ChatContextSidebar({
                 />
               ))
             )}
+            {filteredOutputFiles.length > 8 && (
+              <button type="button" className="w-full rounded-lg px-2 py-1 text-[11px] font-medium text-muted-foreground hover:text-foreground transition-colors" onClick={() => toggleListExpansion('outputFiles')}>
+                {expandedLists.outputFiles ? t('sessionContext.showLess') : `${filteredOutputFiles.length - 8} more...`}
+              </button>
+            )}
           </div>
           )}
         </section>
       </div>
-      )}
+      ) : activeSidebarTab === 'research' ? (
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+          <ResearchLab
+            selectedProject={selectedProject}
+            onNavigateToChat={() => onSidebarTabChange?.('context')}
+            compact
+            onFileOpen={onFileOpen}
+            onStartTask={onStartTask}
+          />
+        </div>
+      ) : activeSidebarTab === 'files' ? (
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+          <FileTree
+            selectedProject={selectedProject}
+            onFileOpen={onFileOpen}
+            onStartWorkspaceQa={onStartWorkspaceQa}
+          />
+        </div>
+      ) : null}
     </aside>
+
+      {(previewFile || previewTask) && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
+          onClick={handleClosePreview}
+        >
+          <div
+            className="relative flex max-h-[85vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              type="button"
+              onClick={handleClosePreview}
+              className="absolute right-3 top-3 z-10 inline-flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+              title={t('sessionContext.preview.closePreview')}
+            >
+              <X className="h-5 w-5" />
+            </button>
+
+            {previewFile && (
+              <div className="min-h-0 flex-1 overflow-y-auto">
+                <ChatContextFilePreview
+                  projectName={projectName}
+                  file={previewFile}
+                  onOpenInEditor={handleOpenInEditor}
+                />
+              </div>
+            )}
+
+            {previewTask && !previewFile && (
+              <div className="min-h-0 flex-1 overflow-y-auto p-5">
+                <div className="mb-4 flex items-center gap-3">
+                  <span className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-sky-200/80 bg-sky-50/95 text-sky-700 shadow-sm dark:border-sky-900/40 dark:bg-sky-950/30 dark:text-sky-200">
+                    <ClipboardList className="h-4 w-4" />
+                  </span>
+                  <div>
+                    <div className="text-sm font-semibold text-foreground">{previewTask.label}</div>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <ItemBadge>{getTaskKindLabel(previewTask.kind)}</ItemBadge>
+                      <ItemBadge>{formatTimeLabel(previewTask.lastSeenAt, i18n.language)}</ItemBadge>
+                      <ItemBadge>{previewTask.count}x</ItemBadge>
+                    </div>
+                  </div>
+                </div>
+                {previewTask.detail && (
+                  <div className="rounded-xl border border-border/60 bg-muted/10 p-4">
+                    <pre className="whitespace-pre-wrap break-words text-sm leading-6 text-foreground">{previewTask.detail}</pre>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </>
   );
 }

@@ -1,6 +1,5 @@
 import express from 'express';
-import { exec, spawn } from 'child_process';
-import { promisify } from 'util';
+import { spawn } from 'child_process';
 import path from 'path';
 import { promises as fs } from 'fs';
 import { extractProjectDirectory } from '../projects.js';
@@ -8,7 +7,6 @@ import { queryClaudeSDK } from '../claude-sdk.js';
 import { spawnCursor } from '../cursor-cli.js';
 
 const router = express.Router();
-const execAsync = promisify(exec);
 
 function spawnAsync(command, args, options = {}) {
   return new Promise((resolve, reject) => {
@@ -98,14 +96,14 @@ async function validateGitRepository(projectPath) {
 
   try {
     // Allow any directory that is inside a work tree (repo root or nested folder).
-    const { stdout: insideWorkTreeOutput } = await execAsync('git rev-parse --is-inside-work-tree', { cwd: projectPath });
+    const { stdout: insideWorkTreeOutput } = await spawnAsync('git', ['rev-parse', '--is-inside-work-tree'], { cwd: projectPath });
     const isInsideWorkTree = insideWorkTreeOutput.trim() === 'true';
     if (!isInsideWorkTree) {
       throw new Error('Not inside a git work tree');
     }
 
     // Ensure git can resolve the repository root for this directory.
-    await execAsync('git rev-parse --show-toplevel', { cwd: projectPath });
+    await spawnAsync('git', ['rev-parse', '--show-toplevel'], { cwd: projectPath });
   } catch {
     throw new Error('Not a git repository. This directory does not contain a .git folder. Initialize a git repository with "git init" to use source control features.');
   }
@@ -274,7 +272,7 @@ router.get('/status', async (req, res) => {
     }
 
     // Get git status
-    const { stdout: statusOutput } = await execAsync('git status --porcelain', { cwd: projectPath });
+    const { stdout: statusOutput } = await spawnAsync('git', ['status', '--porcelain'], { cwd: projectPath });
 
     const modified = [];
     const added = [];
@@ -565,7 +563,7 @@ router.get('/branches', async (req, res) => {
     }
     
     // Get all branches
-    const { stdout } = await execAsync('git branch -a', { cwd: projectPath });
+    const { stdout } = await spawnAsync('git', ['branch', '-a'], { cwd: projectPath });
     
     // Parse branches
     const branches = stdout
@@ -676,8 +674,8 @@ router.get('/commits', async (req, res) => {
     // Get stats for each commit
     for (const commit of commits) {
       try {
-        const { stdout: stats } = await execAsync(
-          `git show --stat --format='' ${commit.hash}`,
+        const { stdout: stats } = await spawnAsync(
+          'git', ['show', '--stat', '--format=', commit.hash],
           { cwd: projectPath }
         );
         commit.stats = stats.trim().split('\n').pop(); // Get the summary line
@@ -705,8 +703,8 @@ router.get('/commit-diff', async (req, res) => {
     const projectPath = await getActualProjectPath(project);
     
     // Get diff for the commit
-    const { stdout } = await execAsync(
-      `git show ${commit}`,
+    const { stdout } = await spawnAsync(
+      'git', ['show', commit],
       { cwd: projectPath }
     );
     
