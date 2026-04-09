@@ -69,8 +69,8 @@ export default function PromptBadgeDropdown({ prompt, onRemove, onUpdate }: Prom
             onChange={(e) => setEditText(e.target.value)}
             onBlur={handleBlur}
             onKeyDown={handleKeyDown}
-            className="w-full p-2.5 text-sm bg-muted/30 border border-border/40 rounded-lg resize-none focus:outline-none focus:ring-1 focus:ring-primary/20 text-foreground/80 min-h-[60px] max-h-[120px]"
-            rows={3}
+            className="w-full p-2 text-sm bg-muted/30 border border-border/40 rounded-lg resize-none focus:outline-none focus:ring-1 focus:ring-primary/20 text-foreground/80 min-h-[36px] max-h-[80px] overflow-y-auto"
+            rows={2}
           />
         </div>
       )}

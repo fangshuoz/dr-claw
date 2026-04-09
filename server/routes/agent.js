@@ -10,6 +10,7 @@ import { queryClaudeSDK } from '../claude-sdk.js';
 import { spawnCursor } from '../cursor-cli.js';
 import { queryCodex } from '../openai-codex.js';
 import { spawnGemini } from '../gemini-cli.js';
+import { queryGeminiApi } from '../gemini-api.js';
 import { queryOpenRouter } from '../openrouter.js';
 import { queryLocalGPU } from '../local-gpu.js';
 import { Octokit } from '@octokit/rest';
@@ -982,15 +983,28 @@ router.post('/', validateExternalApiKey, async (req, res) => {
         permissionMode: 'bypassPermissions'
       }, writer);
     } else if (provider === 'gemini') {
-      console.log('🤖 Starting Gemini CLI session');
+      console.log('🤖 Starting Gemini session');
 
-      await spawnGemini(message.trim(), {
+      const geminiOptions = {
         projectPath: finalProjectPath,
         cwd: finalProjectPath,
         sessionId: null,
         env: sessionEnv,
-        model: model || GEMINI_MODELS.DEFAULT
-      }, writer);
+        model: model || GEMINI_MODELS.DEFAULT,
+        userId: req.user?.id,
+      };
+
+      const result = await queryGeminiApi(message.trim(), geminiOptions, writer);
+      if (result?.authFailed) {
+        console.log('🤖 Falling back to Gemini CLI harness');
+        await spawnGemini(message.trim(), {
+          projectPath: finalProjectPath,
+          cwd: finalProjectPath,
+          sessionId: null,
+          env: sessionEnv,
+          model: model || GEMINI_MODELS.DEFAULT
+        }, writer);
+      }
     } else if (provider === 'openrouter') {
       console.log('🤖 Starting OpenRouter session');
 

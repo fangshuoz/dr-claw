@@ -30,6 +30,8 @@ interface ChatInputControlsProps {
   isUserScrolledUp: boolean;
   hasMessages: boolean;
   onScrollToBottom: () => void;
+  hideCommandMenu?: boolean;
+  compact?: boolean;
 }
 
 export default function ChatInputControls({
@@ -52,6 +54,8 @@ export default function ChatInputControls({
   isUserScrolledUp,
   hasMessages,
   onScrollToBottom,
+  hideCommandMenu,
+  compact,
 }: ChatInputControlsProps) {
   const { t } = useTranslation('chat');
 
@@ -60,7 +64,7 @@ export default function ChatInputControls({
       <button
         type="button"
         onClick={onModeSwitch}
-        className={`px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-lg text-xs sm:text-sm font-medium border transition-all duration-200 ${
+        className={`${compact ? 'w-[8.5rem] whitespace-nowrap truncate px-2 py-1 rounded-lg text-[11px] text-center justify-center' : 'px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-lg text-xs sm:text-sm'} font-medium border transition-all duration-200 ${
           permissionMode === 'default'
             ? 'bg-muted/50 text-muted-foreground border-border/60 hover:bg-muted'
             : permissionMode === 'acceptEdits'
@@ -71,9 +75,9 @@ export default function ChatInputControls({
         }`}
         title={t('input.clickToChangeMode')}
       >
-        <div className="flex items-center gap-1.5">
+        <div className={`flex items-center gap-1.5 ${compact ? 'justify-center' : ''}`}>
           <div
-            className={`w-1.5 h-1.5 rounded-full ${
+            className={`w-1.5 h-1.5 shrink-0 rounded-full ${
               permissionMode === 'default'
                 ? 'bg-muted-foreground'
                 : permissionMode === 'acceptEdits'
@@ -93,7 +97,7 @@ export default function ChatInputControls({
       </button>
 
       {provider === 'claude' && (
-        <ThinkingModeSelector selectedMode={thinkingMode} onModeChange={setThinkingMode} onClose={() => {}} className="" />
+        <ThinkingModeSelector selectedMode={thinkingMode} onModeChange={setThinkingMode} onClose={() => {}} className="" compact={compact} />
       )}
 
       {provider === 'codex' && supportsExplicitCodexReasoningEffort(codexModel) && (
@@ -103,6 +107,7 @@ export default function ChatInputControls({
           onEffortChange={setCodexReasoningEffort}
           onClose={() => {}}
           className=""
+          compact={compact}
         />
       )}
 
@@ -113,40 +118,43 @@ export default function ChatInputControls({
           onModeChange={setGeminiThinkingMode}
           onClose={() => {}}
           className=""
+          compact={compact}
         />
       )}
 
       <TokenUsagePie
         used={tokenBudget?.used}
-        total={tokenBudget?.total || parseInt(import.meta.env.VITE_CONTEXT_WINDOW) || 160000}
+        total={tokenBudget?.total || parseInt(import.meta.env.VITE_CONTEXT_WINDOW) || 200000}
         unsupportedContext={tokenBudget?.unsupportedContext}
         message={tokenBudget?.message}
       />
 
-      <button
-        type="button"
-        onClick={onToggleCommandMenu}
-        className="relative w-7 h-7 sm:w-8 sm:h-8 text-muted-foreground hover:text-foreground rounded-lg flex items-center justify-center transition-colors hover:bg-accent/60"
-        title={t('input.showAllCommands')}
-      >
-        <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={2}
-            d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z"
-          />
-        </svg>
-        {slashCommandsCount > 0 && (
-          <span
-            className="absolute -top-1 -right-1 bg-primary text-primary-foreground text-[10px] font-bold rounded-full w-4 h-4 sm:w-5 sm:h-5 flex items-center justify-center"
-          >
-            {slashCommandsCount}
-          </span>
-        )}
-      </button>
+      {!hideCommandMenu && (
+        <button
+          type="button"
+          onClick={onToggleCommandMenu}
+          className="relative w-7 h-7 sm:w-8 sm:h-8 text-muted-foreground hover:text-foreground rounded-lg flex items-center justify-center transition-colors hover:bg-accent/60"
+          title={t('input.showAllCommands')}
+        >
+          <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z"
+            />
+          </svg>
+          {slashCommandsCount > 0 && (
+            <span
+              className="absolute -top-1 -right-1 bg-primary text-primary-foreground text-[10px] font-bold rounded-full w-4 h-4 sm:w-5 sm:h-5 flex items-center justify-center"
+            >
+              {slashCommandsCount}
+            </span>
+          )}
+        </button>
+      )}
 
-      {hasInput && (
+      {hasInput && !compact && (
         <button
           type="button"
           onClick={onClearInput}

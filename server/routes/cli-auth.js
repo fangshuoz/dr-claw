@@ -414,16 +414,9 @@ async function checkGeminiCredentials() {
       };
     }
 
-    if (process.env.GOOGLE_API_KEY) {
-      console.log('[DEBUG] Gemini: Found GOOGLE_API_KEY in environment');
-      return {
-        authenticated: true,
-        email: 'API Key (Env)',
-        cliAvailable: true,
-        cliCommand
-      };
-    }
-
+    // Check for OAuth credentials file first (preferred — zero-config for Gemini CLI users)
+    let oauthEmail = null;
+    let hasOAuth = false;
     const oauthPath = path.join(os.homedir(), '.gemini', 'oauth_creds.json');
     console.log(`[DEBUG] Gemini: Checking for OAuth file at ${oauthPath}`);
     try {
@@ -431,27 +424,22 @@ async function checkGeminiCredentials() {
       const creds = JSON.parse(content);
 
       if (creds.refresh_token || creds.access_token) {
-        let email = creds.email || 'OAuth (Config)';
+        hasOAuth = true;
+        oauthEmail = creds.email || null;
 
-        if (!creds.email && creds.id_token) {
+        // Try to extract email from id_token if available
+        if (!oauthEmail && creds.id_token) {
           try {
             const parts = creds.id_token.split('.');
             if (parts.length >= 2) {
               const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
-              email = payload.email || email;
+              oauthEmail = payload.email || null;
             }
           } catch (jwtError) {
             console.warn('[DEBUG] Gemini: Failed to decode id_token', jwtError.message);
           }
         }
-
-        console.log(`[DEBUG] Gemini: Authenticated via OAuth as ${email}`);
-        return {
-          authenticated: true,
-          email: email,
-          cliAvailable: true,
-          cliCommand
-        };
+        console.log(`[DEBUG] Gemini: OAuth available as ${oauthEmail || 'unknown'}`);
       } else {
         console.log('[DEBUG] Gemini: OAuth file found but no tokens present');
       }
@@ -463,6 +451,48 @@ async function checkGeminiCredentials() {
       }
     }
 
+    const hasApiKey = Boolean(process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY);
+
+    // Determine active auth method and display
+    if (hasApiKey && hasOAuth) {
+      console.log('[DEBUG] Gemini: Both API Key and OAuth available — using API Key (Direct API)');
+      return {
+        authenticated: true,
+        email: oauthEmail || 'Google Account',
+        method: 'api-key',
+        methodLabel: 'Direct API (API Key + OAuth)',
+        hasOAuth: true,
+        hasApiKey: true,
+        cliAvailable: true,
+        cliCommand
+      };
+    } else if (hasApiKey) {
+      console.log('[DEBUG] Gemini: Authenticated via API Key');
+      return {
+        authenticated: true,
+        email: 'Direct API (API Key)',
+        method: 'api-key',
+        methodLabel: 'Direct API',
+        hasOAuth: false,
+        hasApiKey: true,
+        cliAvailable: true,
+        cliCommand
+      };
+    } else if (hasOAuth) {
+      console.log(`[DEBUG] Gemini: Authenticated via OAuth as ${oauthEmail}`);
+      return {
+        authenticated: true,
+        email: oauthEmail || 'Google OAuth',
+        method: 'oauth',
+        methodLabel: 'OAuth (Code Assist)',
+        hasOAuth: true,
+        hasApiKey: false,
+        cliAvailable: true,
+        cliCommand
+      };
+    }
+
+    // Fallback to legacy config file check
     const configPath = path.join(os.homedir(), '.gemini', 'config.json');
     console.log(`[DEBUG] Gemini: Checking for legacy config at ${configPath}`);
     try {

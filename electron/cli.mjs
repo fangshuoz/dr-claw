@@ -37,7 +37,7 @@ function run(bin, args, extraEnv = {}) {
         ...extraEnv,
       },
       stdio: 'inherit',
-      shell: false,
+      shell: process.platform === 'win32',
     });
 
     child.on('error', reject);

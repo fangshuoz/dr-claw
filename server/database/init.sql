@@ -12,7 +12,8 @@ CREATE TABLE IF NOT EXISTS users (
     is_active BOOLEAN DEFAULT 1,
     git_name TEXT,
     git_email TEXT,
-    has_completed_onboarding BOOLEAN DEFAULT 0
+    has_completed_onboarding BOOLEAN DEFAULT 0,
+    memory_enabled BOOLEAN DEFAULT 1
 );
 
 -- Indexes for performance
@@ -192,3 +193,18 @@ CREATE TABLE IF NOT EXISTS reference_tags (
 );
 
 CREATE INDEX IF NOT EXISTS idx_reference_tags_ref ON reference_tags(reference_id);
+
+-- User memories table (for remembering user preferences, habits, context)
+CREATE TABLE IF NOT EXISTS user_memories (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    content TEXT NOT NULL,
+    category TEXT DEFAULT 'general',  -- general | preference | context | workflow
+    is_enabled BOOLEAN DEFAULT 1,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_memories_user ON user_memories(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_memories_user_enabled ON user_memories(user_id, is_enabled);

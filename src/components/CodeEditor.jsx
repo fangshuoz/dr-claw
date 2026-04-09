@@ -173,7 +173,10 @@ function CodeEditor({ file, onClose, projectPath, selectedProject = null, onStar
   const [fontSize, setFontSize] = useState(() => {
     return localStorage.getItem('codeEditorFontSize') || '12';
   });
-  const [markdownPreview, setMarkdownPreview] = useState(false);
+  const [markdownPreview, setMarkdownPreview] = useState(() => {
+    const ext = file?.name?.split('.').pop()?.toLowerCase();
+    return ext === 'md' || ext === 'markdown';
+  });
   const [candidates, setCandidates] = useState(null);
   const [resolvedPath, setResolvedPath] = useState(null);
   const editorRef = useRef(null);
@@ -225,7 +228,9 @@ function CodeEditor({ file, onClose, projectPath, selectedProject = null, onStar
   useEffect(() => {
     setResolvedPath(null);
     setCandidates(null);
-  }, [file.path]);
+    const ext = file?.name?.split('.').pop()?.toLowerCase();
+    setMarkdownPreview(ext === 'md' || ext === 'markdown');
+  }, [file?.path, file?.name]);
 
   // Create minimap extension with chunk-based gutters
   const minimapExtension = useMemo(() => {

@@ -44,10 +44,11 @@ import mime from 'mime-types';
 
 import { getProjects, getTrashedProjects, getSessions, getSessionMessages, renameProject, renameSession, deleteSession, deleteProject, restoreProject, deleteTrashedProject, addProjectManually, extractProjectDirectory, clearProjectDirectoryCache } from './projects.js';
 import { getProjectTokenUsageSummary } from './project-token-usage.js';
-import { queryClaudeSDK, abortClaudeSDKSession, isClaudeSDKSessionActive, getClaudeSDKSessionStartTime, getActiveClaudeSDKSessions, resolveToolApproval } from './claude-sdk.js';
+import { queryClaudeSDK, abortClaudeSDKSession, isClaudeSDKSessionActive, getClaudeSDKSessionStartTime, getActiveClaudeSDKSessions, resolveToolApproval, getContextWindowForModel } from './claude-sdk.js';
 import { spawnCursor, abortCursorSession, isCursorSessionActive, getCursorSessionStartTime, getActiveCursorSessions } from './cursor-cli.js';
 import { queryCodex, abortCodexSession, isCodexSessionActive, getCodexSessionStartTime, getActiveCodexSessions } from './openai-codex.js';
 import { spawnGemini, abortGeminiSession, isGeminiSessionActive, getGeminiSessionStartTime, getActiveGeminiSessions } from './gemini-cli.js';
+import { queryGeminiApi, abortGeminiApiSession, isGeminiApiSessionActive, getGeminiApiSessionStartTime, getActiveGeminiApiSessions } from './gemini-api.js';
 import { queryOpenRouter, abortOpenRouterSession, isOpenRouterSessionActive, getOpenRouterSessionStartTime, getActiveOpenRouterSessions } from './openrouter.js';
 import { queryLocalGPU, abortLocalGPUSession, isLocalGPUSessionActive, getLocalGPUSessionStartTime, getActiveLocalGPUSessions } from './local-gpu.js';
 import gitRoutes from './routes/git.js';
@@ -69,6 +70,8 @@ import computeRoutes from './routes/compute.js';
 import newsRoutes from './routes/news.js';
 import autoResearchRoutes from './routes/auto-research.js';
 import referencesRoutes from './routes/references.js';
+import memoryRoutes from './routes/memory.js';
+import communityToolsRoutes from './routes/community-tools.js';
 import { initializeDatabase, sessionDb, tagDb } from './database/db.js';
 import { validateApiKey, authenticateToken, authenticateWebSocket } from './middleware/auth.js';
 import { IS_PLATFORM } from './constants/config.js';
@@ -508,6 +511,12 @@ app.use('/api/auto-research', authenticateToken, autoResearchRoutes);
 
 // References (literature library) API Routes (protected)
 app.use('/api/references', authenticateToken, referencesRoutes);
+
+// Memory API Routes (protected)
+app.use('/api/memory', authenticateToken, memoryRoutes);
+
+// Community Tools API Routes (protected)
+app.use('/api/community-tools', authenticateToken, communityToolsRoutes);
 
 // Agent API Routes (uses API key authentication)
 app.use('/api/agent', agentRoutes);
@@ -1537,7 +1546,7 @@ function handleChatConnection(ws, request) {
                     return;
                 }
                 
-                queryClaudeSDK(data.command, { ...data.options, env: sessionEnv }, writer).catch(error => {
+                queryClaudeSDK(data.command, { ...data.options, userId, env: sessionEnv }, writer).catch(error => {
                     console.error('[ERROR] Claude query error:', error);
                 });
             } else if (data.type === 'cursor-command') {
@@ -1606,7 +1615,7 @@ function handleChatConnection(ws, request) {
                 const commandTelemetryEnabled = data.options?.telemetryEnabled !== false;
                 const sessionId = data.options?.sessionId || data.sessionId;
                 
-                if (sessionId && isGeminiSessionActive(sessionId)) {
+                if (sessionId && (isGeminiApiSessionActive(sessionId) || isGeminiSessionActive(sessionId))) {
                     console.log(`[WARN] Gemini session ${sessionId} is already active. Ignoring concurrent request.`);
                     return;
                 }
@@ -1624,9 +1633,22 @@ function handleChatConnection(ws, request) {
                 );
                 writer.telemetryContext = { ...telemetryContext, provider: 'gemini', telemetryEnabled: commandTelemetryEnabled };
                 writer.setProjectPath(data.options?.projectPath || data.options?.cwd || null);
-                spawnGemini(data.command, { ...data.options, env: sessionEnv }, writer).catch(error => {
-                    console.error('[ERROR] Gemini spawn error:', error);
-                });
+                const geminiOptions = { ...data.options, env: sessionEnv, userId };
+                queryGeminiApi(data.command, geminiOptions, writer)
+                    .then((result) => {
+                        if (result?.authFailed) {
+                            console.log('[Gemini] Direct API auth unavailable, falling back to CLI harness');
+                            return spawnGemini(data.command, { ...data.options, userId, env: sessionEnv }, writer);
+                        }
+                        return null;
+                    })
+                    .catch(error => {
+                        console.error('[ERROR] Gemini API error, falling back to CLI:', error.message);
+                        return spawnGemini(data.command, { ...data.options, userId, env: sessionEnv }, writer);
+                    })
+                    .catch(error => {
+                        console.error('[ERROR] Gemini CLI fallback error:', error);
+                    });
             } else if (data.type === 'openrouter-command') {
                 console.log('[DEBUG] OpenRouter message:', data.command || '[Continue/Resume]');
                 console.log('📁 Project:', data.options?.projectPath || data.options?.cwd || 'Unknown');
@@ -1653,7 +1675,7 @@ function handleChatConnection(ws, request) {
                 );
                 writer.telemetryContext = { ...telemetryContext, provider: 'openrouter', telemetryEnabled: commandTelemetryEnabled };
                 writer.setProjectPath(data.options?.projectPath || data.options?.cwd || null);
-                queryOpenRouter(data.command, { ...data.options, env: sessionEnv }, writer).catch(error => {
+                queryOpenRouter(data.command, { ...data.options, userId, env: sessionEnv }, writer).catch(error => {
                     console.error('[ERROR] OpenRouter query error:', error);
                 });
             } else if (data.type === 'local-command') {
@@ -1683,7 +1705,7 @@ function handleChatConnection(ws, request) {
                 );
                 writer.telemetryContext = { ...telemetryContext, provider: 'local', telemetryEnabled: commandTelemetryEnabled };
                 writer.setProjectPath(data.options?.projectPath || data.options?.cwd || null);
-                queryLocalGPU(data.command, { ...data.options, env: sessionEnv }, writer).catch(error => {
+                queryLocalGPU(data.command, { ...data.options, userId, env: sessionEnv }, writer).catch(error => {
                     console.error('[ERROR] Local GPU query error:', error);
                 });
             } else if (data.type === 'cursor-resume') {
@@ -1714,7 +1736,7 @@ function handleChatConnection(ws, request) {
                 } else if (provider === 'codex') {
                     success = abortCodexSession(data.sessionId);
                 } else if (provider === 'gemini') {
-                    success = abortGeminiSession(data.sessionId);
+                    success = abortGeminiApiSession(data.sessionId) || abortGeminiSession(data.sessionId);
                 } else if (provider === 'openrouter') {
                     success = abortOpenRouterSession(data.sessionId);
                 } else if (provider === 'local') {
@@ -1765,8 +1787,8 @@ function handleChatConnection(ws, request) {
                     isActive = isCodexSessionActive(sessionId);
                     startTime = getCodexSessionStartTime(sessionId);
                 } else if (provider === 'gemini') {
-                    isActive = isGeminiSessionActive(sessionId);
-                    startTime = getGeminiSessionStartTime(sessionId);
+                    isActive = isGeminiApiSessionActive(sessionId) || isGeminiSessionActive(sessionId);
+                    startTime = getGeminiApiSessionStartTime(sessionId) || getGeminiSessionStartTime(sessionId);
                 } else if (provider === 'openrouter') {
                     isActive = isOpenRouterSessionActive(sessionId);
                     startTime = getOpenRouterSessionStartTime(sessionId);
@@ -1792,7 +1814,7 @@ function handleChatConnection(ws, request) {
                     claude: getActiveClaudeSDKSessions(),
                     cursor: getActiveCursorSessions(),
                     codex: getActiveCodexSessions(),
-                    gemini: getActiveGeminiSessions(),
+                    gemini: [...getActiveGeminiApiSessions(), ...getActiveGeminiSessions()],
                     local: getActiveLocalGPUSessions()
                 };
 
@@ -2801,6 +2823,7 @@ app.get('/api/projects/:projectName/sessions/:sessionId/token-usage', authentica
     let inputTokens = 0;
     let cacheCreationTokens = 0;
     let cacheReadTokens = 0;
+    let outputTokens = 0;
     let modelName = null;
 
     // Find the latest assistant message with usage data (scan from end)
@@ -2816,6 +2839,7 @@ app.get('/api/projects/:projectName/sessions/:sessionId/token-usage', authentica
           inputTokens = usage.input_tokens || 0;
           cacheCreationTokens = usage.cache_creation_input_tokens || 0;
           cacheReadTokens = usage.cache_read_input_tokens || 0;
+          outputTokens = usage.output_tokens || 0;
           modelName = entry.message.model || null;
 
           break; // Stop after finding the latest assistant message
@@ -2826,42 +2850,12 @@ app.get('/api/projects/:projectName/sessions/:sessionId/token-usage', authentica
       }
     }
 
-    // Determine context window from model name
-    const MODEL_CONTEXT_WINDOWS = {
-      'claude-opus-4-6':     200000,
-      'claude-opus-4-20250918': 200000,
-      'claude-sonnet-4-6':   200000,
-      'claude-sonnet-4-20250514': 200000,
-      'claude-haiku-4-5':    200000,
-      'claude-haiku-4-5-20251001': 200000,
-      'claude-3-5-sonnet':   200000,
-      'claude-3-5-sonnet-20241022': 200000,
-      'claude-3-5-haiku':    200000,
-      'claude-3-5-haiku-20241022': 200000,
-      'claude-3-opus':       200000,
-      'claude-3-opus-20240229': 200000,
-      'claude-3-sonnet':     200000,
-      'claude-3-haiku':      200000,
-    };
+    // Determine context window from model name (model lookup > env var > default)
+    const contextWindow = getContextWindowForModel(modelName);
 
-    // Priority: env var override > model-based lookup > default
-    const parsedContextWindow = parseInt(process.env.CONTEXT_WINDOW, 10);
-    let contextWindow;
-    if (Number.isFinite(parsedContextWindow)) {
-      contextWindow = parsedContextWindow;
-    } else if (modelName) {
-      // Try exact match first, then prefix match
-      contextWindow = MODEL_CONTEXT_WINDOWS[modelName];
-      if (!contextWindow) {
-        const prefix = Object.keys(MODEL_CONTEXT_WINDOWS).find(k => modelName.startsWith(k));
-        contextWindow = prefix ? MODEL_CONTEXT_WINDOWS[prefix] : 200000;
-      }
-    } else {
-      contextWindow = 200000;
-    }
-
-    // Calculate total context usage (excluding output_tokens, as per ccusage)
-    const totalUsed = inputTokens + cacheCreationTokens + cacheReadTokens;
+    // Calculate total context usage (input + output share the same context window)
+    // This is a per-call snapshot from the latest assistant message, no cross-turn double-counting.
+    const totalUsed = inputTokens + cacheCreationTokens + cacheReadTokens + outputTokens;
 
     res.json({
       used: totalUsed,
@@ -2870,7 +2864,8 @@ app.get('/api/projects/:projectName/sessions/:sessionId/token-usage', authentica
       breakdown: {
         input: inputTokens,
         cacheCreation: cacheCreationTokens,
-        cacheRead: cacheReadTokens
+        cacheRead: cacheReadTokens,
+        output: outputTokens
       }
     });
   } catch (error) {
