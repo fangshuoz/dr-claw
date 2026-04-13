@@ -4,6 +4,7 @@ import { MicButton } from '../../../MicButton.jsx';
 import ImageAttachment from './ImageAttachment';
 import PermissionRequestsBanner from './PermissionRequestsBanner';
 import ChatInputControls from './ChatInputControls';
+
 import ReferencePicker from '../../../references/view/ReferencePicker';
 import PromptBadgeDropdown from './PromptBadgeDropdown';
 import { Plus } from 'lucide-react';
@@ -26,8 +27,9 @@ import type { GeminiThinkingModeId } from '../../../../../shared/geminiThinkingS
 import type { AttachedPrompt, PendingPermissionRequest, PermissionMode, Provider, TokenBudget } from '../../types/types';
 import type { ProviderAvailability } from '../../types/types';
 import type { SessionMode, SessionProvider } from '../../../../types/app';
-import { CLAUDE_MODELS, CURSOR_MODELS, CODEX_MODELS, GEMINI_MODELS, LOCAL_MODELS, OPENROUTER_MODELS } from '../../../../../shared/modelConstants';
+import { CLAUDE_MODELS, CURSOR_MODELS, CODEX_MODELS, GEMINI_MODELS, LOCAL_MODELS, NANO_CLAUDE_CODE_MODELS, OPENROUTER_MODELS } from '../../../../../shared/modelConstants';
 import { authenticatedFetch } from '../../../../utils/api';
+import { isAutoResearchScenario } from '../../utils/autoResearch';
 
 // New subcomponents
 import SkillDropdown from './SkillDropdown';
@@ -62,6 +64,7 @@ const PROVIDERS: ProviderDef[] = [
   { id: 'codex', name: 'Codex', accent: 'border-emerald-600 dark:border-emerald-400', ring: 'ring-emerald-600/15', check: 'bg-emerald-600 dark:bg-emerald-500 text-white' },
   { id: 'openrouter', name: 'OpenRouter', accent: 'border-violet-500 dark:border-violet-400', ring: 'ring-violet-500/15', check: 'bg-violet-500 text-white' },
   { id: 'local', name: 'Local GPU', accent: 'border-emerald-500 dark:border-emerald-400', ring: 'ring-emerald-500/15', check: 'bg-emerald-500 text-white' },
+  // { id: 'nano', name: 'Nano Claude Code', accent: 'border-amber-600 dark:border-amber-400', ring: 'ring-amber-600/15', check: 'bg-amber-600 text-white' },
 ];
 
 function getModelConfig(p: SessionProvider) {
@@ -70,15 +73,17 @@ function getModelConfig(p: SessionProvider) {
   if (p === 'gemini') return GEMINI_MODELS;
   if (p === 'openrouter') return OPENROUTER_MODELS;
   if (p === 'local') return LOCAL_MODELS;
+  if (p === 'nano') return NANO_CLAUDE_CODE_MODELS;
   return CURSOR_MODELS;
 }
 
-function getModelValue(p: SessionProvider, c: string, cu: string, co: string, g: string, or: string, lo: string) {
+function getModelValue(p: SessionProvider, c: string, cu: string, co: string, g: string, or: string, lo: string, na: string) {
   if (p === 'claude') return c;
   if (p === 'codex') return co;
   if (p === 'gemini') return g;
   if (p === 'openrouter') return or;
   if (p === 'local') return lo;
+  if (p === 'nano') return na;
   return cu;
 }
 
@@ -154,7 +159,6 @@ interface ChatComposerProps {
   onUpdateAttachedPrompt: (promptText: string) => void;
   centered?: boolean;
   setAttachedPrompt?: (prompt: AttachedPrompt | null) => void;
-  // Provider selection props
   setProvider?: (next: SessionProvider) => void;
   claudeModel?: string;
   setClaudeModel?: (model: string) => void;
@@ -166,6 +170,8 @@ interface ChatComposerProps {
   setOpenrouterModel?: (model: string) => void;
   localModel?: string;
   setLocalModel?: (model: string) => void;
+  nanoModel?: string;
+  setNanoModel?: (model: string) => void;
   providerAvailability?: Record<SessionProvider, ProviderAvailability>;
   newSessionMode?: SessionMode;
   onNewSessionModeChange?: (mode: SessionMode) => void;
@@ -251,6 +257,8 @@ export default function ChatComposer({
   setOpenrouterModel,
   localModel: localModelProp,
   setLocalModel,
+  nanoModel: nanoModelProp,
+  setNanoModel,
   providerAvailability,
   newSessionMode,
   onNewSessionModeChange,
@@ -277,7 +285,7 @@ export default function ChatComposer({
 
   // Provider/model handling for centered mode
   const sessionProvider = provider as SessionProvider;
-  const currentModel = getModelValue(sessionProvider, claudeModelProp || '', cursorModelProp || '', codexModel, geminiModel, openrouterModelProp || '', localModelProp || '');
+  const currentModel = getModelValue(sessionProvider, claudeModelProp || '', cursorModelProp || '', codexModel, geminiModel, openrouterModelProp || '', localModelProp || '', nanoModelProp || '');
 
   const [ollamaModels, setOllamaModels] = useState<Array<{ value: string; label: string }>>([]);
   const [isLoadingOllamaModels, setIsLoadingOllamaModels] = useState(false);
@@ -346,6 +354,7 @@ export default function ChatComposer({
     else if (sessionProvider === 'gemini') { setGeminiModel?.(value); localStorage.setItem('gemini-model', value); }
     else if (sessionProvider === 'openrouter') { setOpenrouterModel?.(value); localStorage.setItem('openrouter-model', value); }
     else if (sessionProvider === 'local') { setLocalModel?.(value); localStorage.setItem('local-model', value); }
+    else if (sessionProvider === 'nano') { setNanoModel?.(value); localStorage.setItem('nano-claude-code-model', value); }
     else { setCursorModel?.(value); localStorage.setItem('cursor-model', value); }
   };
 
@@ -355,38 +364,39 @@ export default function ChatComposer({
   ];
 
   return (
-    <div className={`p-2 sm:p-4 md:p-4 flex-shrink-0 ${centered ? 'pb-2 sm:pb-3' : 'pb-2 sm:pb-4 md:pb-6'} ${mobileFloatingClass}`}>
-      <div className={`${centered ? 'max-w-3xl' : 'max-w-5xl'} mx-auto mb-3`}>
+    <div className={`px-2 pt-0 sm:px-4 sm:pt-1 md:px-4 md:pt-1 flex-shrink-0 ${centered ? 'pb-2 sm:pb-3' : 'pb-2 sm:pb-4 md:pb-6'} ${mobileFloatingClass}`}>
+      <div className={`${centered ? 'max-w-3xl' : 'max-w-5xl'} mx-auto`}>
         <PermissionRequestsBanner
           provider={provider}
           pendingPermissionRequests={pendingPermissionRequests}
           handlePermissionDecision={handlePermissionDecision}
           handleGrantToolPermission={handleGrantToolPermission}
         />
-
-        {!centered && !hasQuestionPanel && (
-          <div className="flex items-center justify-center gap-2 sm:gap-3 flex-wrap">
-            <ClaudeStatus
-              status={claudeStatus}
-              isLoading={isLoading}
-              onAbort={onAbortSession}
-              provider={provider}
-            />
-            {isUserScrolledUp && hasMessages && (
-              <button
-                onClick={onScrollToBottom}
-                className="w-7 h-7 sm:w-8 sm:h-8 bg-primary hover:bg-primary/90 text-primary-foreground rounded-lg shadow-sm flex items-center justify-center transition-all duration-200 hover:scale-105"
-              >
-                <svg className="w-3.5 h-3.5 sm:w-4 sm:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 14l-7 7m0 0l-7-7m7 7V3" />
-                </svg>
-              </button>
-            )}
-          </div>
-        )}
       </div>
 
       {!hasQuestionPanel && <form onSubmit={onSubmit as (event: FormEvent<HTMLFormElement>) => void} className={`relative mx-auto ${centered ? 'max-w-3xl' : 'max-w-5xl'}`}>
+        {!centered && !hasQuestionPanel && (isLoading || (isUserScrolledUp && hasMessages)) && (
+          <div className="pointer-events-none absolute bottom-full left-0 right-0 flex justify-center pb-1.5">
+            <div className="pointer-events-auto relative flex items-center">
+              <ClaudeStatus
+                status={claudeStatus}
+                isLoading={isLoading}
+                onAbort={onAbortSession}
+                provider={provider}
+              />
+              {isUserScrolledUp && hasMessages && (
+                <button
+                  onClick={onScrollToBottom}
+                  className={`w-7 h-7 sm:w-8 sm:h-8 bg-primary hover:bg-primary/90 text-primary-foreground rounded-lg shadow-sm flex items-center justify-center transition-all duration-200 hover:scale-105 ${isLoading ? 'absolute left-full ml-2' : ''}`}
+                >
+                  <svg className="w-3.5 h-3.5 sm:w-4 sm:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 14l-7 7m0 0l-7-7m7 7V3" />
+                  </svg>
+                </button>
+              )}
+            </div>
+          </div>
+        )}
         {isDragActive && (
           <div className="absolute inset-0 bg-primary/15 border-2 border-dashed border-primary/50 rounded-3xl flex items-center justify-center z-50">
             <div className="bg-card rounded-xl p-4 shadow-lg border border-border/30">
@@ -506,20 +516,19 @@ export default function ChatComposer({
               onBlur={() => onInputFocusChange?.(false)}
               onInput={onTextareaInput}
               placeholder={placeholder}
-              disabled={isLoading}
-              className={`chat-input-placeholder block w-full pl-5 ${centered ? 'pr-16 pt-4 pb-2 min-h-[72px] max-h-[200px] text-sm' : 'pr-20 sm:pr-40 py-1.5 sm:py-4 min-h-[50px] sm:min-h-[80px] max-h-[40vh] sm:max-h-[300px] text-base'} bg-transparent rounded-3xl focus:outline-none text-foreground placeholder-muted-foreground/50 disabled:opacity-50 resize-none overflow-y-auto leading-6 transition-all duration-200`}
+              className={`chat-input-placeholder block w-full pl-5 ${centered ? 'pr-16 pt-4 pb-2 min-h-[72px] max-h-[200px] text-sm' : 'pr-20 sm:pr-40 py-1.5 sm:py-4 min-h-[50px] sm:min-h-[80px] max-h-[40vh] sm:max-h-[300px] text-base'} bg-transparent rounded-3xl focus:outline-none text-foreground placeholder-muted-foreground/50 resize-none overflow-y-auto leading-6 transition-all duration-200 ${isLoading && !input.trim().startsWith('/') ? 'opacity-50' : ''}`}
               style={{ height: centered ? '72px' : '50px' }}
             />
-
-
-
             <div className={`absolute ${centered ? 'right-11' : 'right-14'} top-1/2 transform -translate-y-1/2`}>
               <MicButton onTranscript={onTranscript} className={centered ? '!w-7 !h-7' : '!w-9 !h-9'} />
             </div>
 
             <button
               type="submit"
-              disabled={(!input.trim() && attachedFiles.length === 0 && !attachedPrompt) || isLoading}
+              disabled={
+                (!input.trim() && attachedFiles.length === 0 && !attachedPrompt) ||
+                (isLoading && !input.trim().startsWith('/btw '))
+              }
               onMouseDown={(event) => {
                 event.preventDefault();
                 onSubmit(event);
@@ -630,10 +639,19 @@ export default function ChatComposer({
                     </>
                   )}
 
+                  {isAutoResearchScenario(attachedPrompt?.scenarioId) && (
+                    <span
+                      className="text-[10px] text-amber-600 dark:text-amber-400 bg-amber-100 dark:bg-amber-900/30 px-1.5 py-0.5 rounded font-medium"
+                      title="Autoresearch mode: tool permissions are auto-approved"
+                    >
+                      Auto
+                    </span>
+                  )}
+
                   {centered && <div className="h-4 border-l border-border/40 mx-1" />}
 
                   <ChatInputControls
-                    permissionMode={permissionMode}
+                    permissionMode={isAutoResearchScenario(attachedPrompt?.scenarioId) ? 'bypassPermissions' : permissionMode}
                     onModeSwitch={onModeSwitch}
                     provider={provider}
                     codexModel={codexModel}
@@ -649,9 +667,6 @@ export default function ChatComposer({
                     onToggleCommandMenu={onToggleCommandMenu}
                     hasInput={hasInput}
                     onClearInput={onClearInput}
-                    isUserScrolledUp={isUserScrolledUp}
-                    hasMessages={hasMessages}
-                    onScrollToBottom={onScrollToBottom}
                     hideCommandMenu
                     compact
                   />

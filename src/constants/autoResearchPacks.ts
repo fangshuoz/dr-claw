@@ -4,7 +4,7 @@ export type PackConfigOption = {
   key: string;
   label: string;
   install?: string;
-  register: string;
+  register?: string;
   envVars: Array<{ name: string; example: string }>;
 };
 
@@ -30,9 +30,56 @@ export type PackDef = {
   gpu: PackGpuOption[];
   setupScript: string;
   repoUrl?: string;
+  configLabel?: Record<LocaleKey, { title: string; desc: string }>;
 };
 
 export const AUTO_RESEARCH_PACKS: PackDef[] = [
+  {
+    name: 'Dr. Claw',
+    description: {
+      zh: '自研全流程研究工具包，覆盖完整研究生命周期的 16 个技能：从课题规划、文献调研、实验开发到论文撰写与投稿。',
+      en: '16 in-house skills covering the full research lifecycle: from project planning, literature survey, experiment development to paper writing and submission.',
+      ko: '16 in-house skills covering the full research lifecycle: planning, survey, experiments, paper writing.',
+    },
+    skills: [
+      'inno-pipeline-planner',
+      'inno-prepare-resources',
+      'inno-idea-generation',
+      'inno-idea-eval',
+      'inno-deep-research',
+      'inno-code-survey',
+      'inno-experiment-dev',
+      'inno-experiment-analysis',
+      'inno-paper-writing',
+      'inno-paper-reviewer',
+      'inno-humanizer',
+      'inno-reference-audit',
+      'inno-figure-gen',
+      'inno-rclone-to-overleaf',
+      'inno-rebuttal',
+      'inno-grant-proposal',
+    ],
+    workflows: [
+      { name: 'Pipeline Planner', command: '/inno-pipeline-planner', description: { zh: '交互式项目定义 → research_brief.json + tasks.json', en: 'Interactive project definition → research_brief.json + tasks.json', ko: 'Interactive project definition → research_brief.json + tasks.json' } },
+      { name: 'Deep Research', command: '/inno-deep-research', description: { zh: '综合多源文献调研', en: 'Comprehensive multi-source literature survey', ko: 'Comprehensive multi-source literature survey' } },
+      { name: 'Idea Generation', command: '/inno-idea-generation', description: { zh: 'SCAMPER/SWOT 结构化头脑风暴', en: 'Structured brainstorming with SCAMPER/SWOT frameworks', ko: 'Structured brainstorming with SCAMPER/SWOT' } },
+      { name: 'Experiment Dev', command: '/inno-experiment-dev', description: { zh: '实现 + Judge 反馈循环', en: 'Implementation + judge feedback loop', ko: 'Implementation + judge feedback loop' } },
+      { name: 'Paper Writing', command: '/inno-paper-writing', description: { zh: 'IEEE/ACM 学术论文撰写', en: 'IEEE/ACM academic paper writing', ko: 'IEEE/ACM academic paper writing' } },
+      { name: 'Paper Review', command: '/inno-paper-reviewer', description: { zh: '清单式论文审阅', en: 'Checklist-based paper review', ko: 'Checklist-based paper review' } },
+      { name: 'Rebuttal', command: '/inno-rebuttal', description: { zh: '学术反驳信撰写', en: 'Academic rebuttal drafting', ko: 'Academic rebuttal drafting' } },
+      { name: 'Figure Gen', command: '/inno-figure-gen', description: { zh: 'Gemini 图像生成/编辑', en: 'Gemini image generation/editing', ko: 'Gemini image generation/editing' } },
+    ],
+    mcp: [
+      { key: 'gemini-figure', label: 'Gemini (Figure Gen)', envVars: [{ name: 'GEMINI_API_KEY', example: 'your-gemini-api-key' }] },
+    ],
+    configLabel: {
+      zh: { title: '① 环境变量', desc: '配置图片生成所需的 API Key' },
+      en: { title: '① Environment', desc: 'API key required for image generation' },
+      ko: { title: '① Environment', desc: 'API key for image generation' },
+    },
+    gpu: [],
+    setupScript: '',
+  },
   {
     name: 'ARIS',
     repoUrl: 'https://github.com/wanshuiyin/Auto-claude-code-research-in-sleep',

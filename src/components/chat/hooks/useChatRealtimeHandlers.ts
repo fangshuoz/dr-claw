@@ -340,7 +340,10 @@ export function useChatRealtimeHandlers({
                 const resultStr = typeof part.content === 'string' ? part.content : JSON.stringify(part.content);
                 const parsedAnswers = parseAskUserAnswers(resultStr);
                 if (parsedAnswers) {
-                  result.toolInput = mergeAnswersIntoToolInput(String(message.toolInput || '{}'), parsedAnswers);
+                  const inputStr = typeof message.toolInput === 'string'
+                    ? message.toolInput
+                    : JSON.stringify(message.toolInput || {});
+                  result.toolInput = mergeAnswersIntoToolInput(inputStr, parsedAnswers);
                 }
               }
               if (message.isSubagentContainer && message.subagentState) {
@@ -392,6 +395,7 @@ export function useChatRealtimeHandlers({
       'gemini-error',
       'openrouter-error',
       'localgpu-error',
+      'session-busy',
     ]);
 
     const isClaudeSystemInit =
@@ -1327,6 +1331,16 @@ export function useChatRealtimeHandlers({
         }
         break;
       }
+
+      case 'session-busy':
+        console.warn(`[session-busy] Session ${latestMessage.sessionId} is already processing (${latestMessage.provider})`);
+        setChatMessages((previous) => {
+          const busyMsg = 'This session is still processing. Please wait for the current response to complete.';
+          const last = previous[previous.length - 1];
+          if (last?.type === 'error' && last.content === busyMsg) return previous;
+          return [...previous, { type: 'error', content: busyMsg, timestamp: new Date() }];
+        });
+        break;
 
       case 'session-status': {
         const statusSessionId = latestMessage.sessionId;

@@ -121,27 +121,32 @@ router.post('/configure', async (req, res) => {
     // ── Step 2: Register MCP server ──
     if (mcpBackend) {
       try {
-        // Check if already registered
-        let alreadyRegistered = false;
-        try {
-          const { stdout } = await spawnAsync('claude', ['mcp', 'list'], { env: EXTENDED_ENV });
-          alreadyRegistered = stdout.includes(mcpBackend);
-        } catch {
-          // claude mcp list failed, proceed with registration
-        }
+        const mcpCommands = {
+          codex: ['mcp', 'add', 'codex', '-s', 'user', '--', 'codex', 'mcp-server'],
+          'llm-chat': ['mcp', 'add', 'llm-chat', '-s', 'user', '--', 'python3', path.join(resolvedPath, 'skills/aris-infra/mcp-servers/llm-chat/server.py')],
+          gemini: ['mcp', 'add', 'gemini-review', '-s', 'user', '--', 'python3', path.join(resolvedPath, 'skills/aris-infra/mcp-servers/gemini-review/server.py')],
+        };
 
-        if (alreadyRegistered) {
-          results.steps.push({ step: 'mcp', status: 'skipped', message: `${mcpBackend} MCP already registered` });
-        } else {
-          const mcpCommands = {
-            codex: ['mcp', 'add', 'codex', '-s', 'user', '--', 'codex', 'mcp-server'],
-            'llm-chat': ['mcp', 'add', 'llm-chat', '-s', 'user', '--', 'python3', path.join(resolvedPath, 'skills/aris-infra/mcp-servers/llm-chat/server.py')],
-            gemini: ['mcp', 'add', 'gemini-review', '-s', 'user', '--', 'python3', path.join(resolvedPath, 'skills/aris-infra/mcp-servers/gemini-review/server.py')],
-          };
-
-          const args = mcpCommands[mcpBackend];
-          if (!args) {
+        const ENV_ONLY_BACKENDS = ['gemini-figure'];
+        const args = mcpCommands[mcpBackend];
+        if (!args) {
+          if (ENV_ONLY_BACKENDS.includes(mcpBackend)) {
+            results.steps.push({ step: 'mcp', status: 'skipped', message: `No MCP server needed for ${mcpBackend}` });
+          } else {
             results.errors.push({ step: 'mcp', error: `Unknown backend: ${mcpBackend}` });
+          }
+        } else {
+          // Check if already registered
+          let alreadyRegistered = false;
+          try {
+            const { stdout } = await spawnAsync('claude', ['mcp', 'list'], { env: EXTENDED_ENV });
+            alreadyRegistered = stdout.includes(mcpBackend);
+          } catch {
+            // claude mcp list failed, proceed with registration
+          }
+
+          if (alreadyRegistered) {
+            results.steps.push({ step: 'mcp', status: 'skipped', message: `${mcpBackend} MCP already registered` });
           } else {
             await spawnAsync('claude', args, { env: EXTENDED_ENV });
             results.steps.push({ step: 'mcp', status: 'ok', message: `Registered ${mcpBackend} MCP server` });
@@ -200,7 +205,7 @@ router.post('/configure', async (req, res) => {
       let linked = 0;
       const entries = await fs.readdir(skillsDir, { withFileTypes: true });
       for (const entry of entries) {
-        if (entry.isDirectory() && (entry.name.startsWith('aris-') || entry.name === 'autoresearch')) {
+        if (entry.isDirectory() && (entry.name.startsWith('aris-') || entry.name.startsWith('inno-') || entry.name === 'autoresearch')) {
           const target = path.join(claudeSkillsDir, entry.name);
           try {
             await fs.access(target);

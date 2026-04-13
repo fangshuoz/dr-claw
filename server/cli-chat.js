@@ -14,6 +14,8 @@ import path from 'path';
 import os from 'os';
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import spawnAsync from './utils/spawnAsync.js';
+import { safePath } from './utils/safePath.js';
 
 const execAsync = promisify(exec);
 
@@ -164,10 +166,9 @@ const TOOL_SCHEMAS = [
 // ── Tool execution ────────────────────────────────────────────────────────────
 
 async function executeTool(name, args, workingDir) {
-  const resolve = (p) => {
-    if (!p) return workingDir;
-    return path.isAbsolute(p) ? p : path.resolve(workingDir, p);
-  };
+  // Constrain all paths to the project root to prevent LLM-driven
+  // prompt-injection attacks from reading/writing outside the workspace.
+  const resolve = (p) => safePath(p, workingDir);
   const trunc = (s) =>
     s.length <= MAX_OUTPUT_CHARS ? s : s.slice(0, MAX_OUTPUT_CHARS) + `\n…(truncated)`;
 
@@ -210,23 +211,33 @@ async function executeTool(name, args, workingDir) {
       }
       case 'Glob': {
         const dir = resolve(args.path);
-        const { stdout } = await execAsync(
-          `rg --files --glob '${args.pattern}' 2>/dev/null | head -300`,
-          { cwd: dir, timeout: 30_000, maxBuffer: 1024 * 1024 },
-        ).catch(() =>
-          execAsync(`find . -name '${args.pattern}' -type f 2>/dev/null | head -300`, {
-            cwd: dir, timeout: 30_000, maxBuffer: 1024 * 1024,
-          }),
-        );
-        return trunc(stdout || '(no matches)');
+        try {
+          const { stdout } = await spawnAsync('rg', ['--files', '--glob', args.pattern], {
+            cwd: dir, timeout: 30_000,
+          });
+          const lines = stdout.split('\n').filter(Boolean).slice(0, 300);
+          return trunc(lines.join('\n') || '(no matches)');
+        } catch {
+          try {
+            const { stdout } = await spawnAsync('find', ['.', '-name', args.pattern, '-type', 'f'], {
+              cwd: dir, timeout: 30_000,
+            });
+            const lines = stdout.split('\n').filter(Boolean).slice(0, 300);
+            return trunc(lines.join('\n') || '(no matches)');
+          } catch {
+            return '(no matches)';
+          }
+        }
       }
       case 'Grep': {
         const target = resolve(args.path);
-        let cmd = `rg --line-number --max-count 100 --max-columns 200`;
-        if (args.include) cmd += ` --glob '${args.include}'`;
-        cmd += ` '${args.pattern.replace(/'/g, "'\\''")}' '${target}'`;
+        const rgArgs = ['--line-number', '--max-count', '100', '--max-columns', '200'];
+        if (args.include) rgArgs.push('--glob', args.include);
+        rgArgs.push('-e', args.pattern, '--', target);
         try {
-          const { stdout } = await execAsync(cmd, { cwd: workingDir, timeout: 30_000, maxBuffer: 2 * 1024 * 1024 });
+          const { stdout } = await spawnAsync('rg', rgArgs, {
+            cwd: workingDir, timeout: 30_000,
+          });
           return trunc(stdout || '(no matches)');
         } catch (err) {
           if (err.code === 1) return '(no matches)';

@@ -4,6 +4,7 @@ export const CLAUDE_SETTINGS_KEY = 'claude-settings';
 export const GEMINI_SETTINGS_KEY = 'gemini-settings';
 export const CURSOR_SETTINGS_KEY = 'cursor-tools-settings';
 export const CODEX_SETTINGS_KEY = 'codex-settings';
+export const NANO_SETTINGS_KEY = 'nano-claude-code-settings';
 const SESSION_TIMER_PREFIX = 'session_timer_start_';
 
 const safeSessionStorage = {
@@ -36,6 +37,7 @@ export function getProviderSettingsKey(provider?: string) {
     case 'gemini': return GEMINI_SETTINGS_KEY;
     case 'cursor': return CURSOR_SETTINGS_KEY;
     case 'codex': return CODEX_SETTINGS_KEY;
+    case 'nano': return NANO_SETTINGS_KEY;
     default: return CLAUDE_SETTINGS_KEY;
   }
 }
@@ -157,7 +159,8 @@ export function moveSessionTimerStart(fromSessionId: string | null | undefined, 
 }
 
 export function getProviderSettings(provider?: string): ProviderSettings {
-  const raw = safeLocalStorage.getItem(getProviderSettingsKey(provider));
+  const key = getProviderSettingsKey(provider);
+  let raw = safeLocalStorage.getItem(key);
   if (!raw) {
     return {
       allowedTools: [],

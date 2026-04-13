@@ -2361,6 +2361,7 @@ export default function SkillsDashboard({ onSendToChat }: SkillsDashboardProps =
                                     </button>
                                   </div>
                                 )}
+                                {mcpOpt.register && (
                                 <div className="flex items-center justify-between gap-2">
                                   <div className="min-w-0 flex-1">
                                     <p className="mb-0.5 text-xs font-medium text-muted-foreground">{text.configRegister}</p>
@@ -2370,6 +2371,7 @@ export default function SkillsDashboard({ onSendToChat }: SkillsDashboardProps =
                                     {copiedCommand === mcpOpt.register ? <Check className="h-3.5 w-3.5 text-green-600" /> : <Copy className="h-3.5 w-3.5" />}
                                   </button>
                                 </div>
+                                )}
                                 {mcpOpt.envVars.map((ev) => (
                                   <div key={ev.name}>
                                     <p className="mb-1 text-xs font-medium text-muted-foreground">{ev.name}</p>

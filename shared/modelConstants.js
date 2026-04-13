@@ -112,6 +112,24 @@ export const OPENROUTER_MODELS = {
 };
 
 /**
+ * Nano Claude Code — Anthropic/OpenRouter/OpenAI-compat model ids (see nano-claude-code config.MODELS)
+ */
+export const NANO_CLAUDE_CODE_MODELS = {
+  OPTIONS: [
+    { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6' },
+    { value: 'claude-opus-4-20250514', label: 'Claude Opus 4' },
+    { value: 'claude-haiku-3-5-20241022', label: 'Claude 3.5 Haiku' },
+  ],
+
+  ALLOWS_CUSTOM: true,
+
+  DEFAULT:
+    (typeof process !== 'undefined' &&
+      process.env?.NANO_CLAUDE_CODE_MODEL) ||
+    'claude-sonnet-4-6'
+};
+
+/**
  * Local GPU Models (open-source models for self-hosted deployment)
  */
 export const LOCAL_MODELS = {

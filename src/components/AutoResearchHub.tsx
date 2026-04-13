@@ -395,8 +395,9 @@ export default function AutoResearchHub() {
                       <div className="space-y-4 px-5 pb-5">
                         {/* MCP */}
                         <div>
-                          <h4 className="mb-1 text-sm font-semibold text-foreground">{t.configMcp}</h4>
-                          <p className="mb-2 text-xs text-muted-foreground">{t.configMcpDesc}</p>
+                          <h4 className="mb-1 text-sm font-semibold text-foreground">{pack.configLabel?.[locale]?.title ?? t.configMcp}</h4>
+                          <p className="mb-2 text-xs text-muted-foreground">{pack.configLabel?.[locale]?.desc ?? t.configMcpDesc}</p>
+                          {pack.mcp.length > 1 && (
                           <div className="mb-2 flex flex-wrap gap-1.5">
                             {pack.mcp.map(opt => (
                               <button key={opt.key} type="button" onClick={() => setSelectedMcp(p => ({ ...p, [pack.name]: opt.key }))}
@@ -405,6 +406,7 @@ export default function AutoResearchHub() {
                               </button>
                             ))}
                           </div>
+                          )}
                           {mcpOpt && (
                             <div className="space-y-2 rounded-xl border border-sky-200/50 bg-sky-50/30 p-3 dark:border-sky-800/30 dark:bg-sky-950/10">
                               {mcpOpt.install && (
@@ -418,15 +420,17 @@ export default function AutoResearchHub() {
                                   </button>
                                 </div>
                               )}
+                              {mcpOpt.register && (
                               <div className="flex items-center justify-between gap-2">
                                 <div className="min-w-0 flex-1">
                                   <p className="mb-0.5 text-xs font-medium text-muted-foreground">{t.register}</p>
                                   <code className="block truncate rounded bg-slate-100 px-2 py-1 text-xs text-foreground dark:bg-slate-800">{mcpOpt.register}</code>
                                 </div>
-                                <button type="button" onClick={() => copyToClipboard(mcpOpt.register)} className="shrink-0 rounded-md p-1.5 text-muted-foreground hover:bg-sky-100 hover:text-sky-700 dark:hover:bg-sky-900/30">
+                                <button type="button" onClick={() => copyToClipboard(mcpOpt.register!)} className="shrink-0 rounded-md p-1.5 text-muted-foreground hover:bg-sky-100 hover:text-sky-700 dark:hover:bg-sky-900/30">
                                   {copiedCommand === mcpOpt.register ? <Check className="h-3.5 w-3.5 text-green-600" /> : <Copy className="h-3.5 w-3.5" />}
                                 </button>
                               </div>
+                              )}
                               {mcpOpt.envVars.map(ev => (
                                 <div key={ev.name}>
                                   <p className="mb-1 text-xs font-medium text-muted-foreground">{ev.name}</p>

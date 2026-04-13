@@ -57,6 +57,7 @@ const SIDEBAR_SECTIONS_STORAGE_KEY = 'chat-session-context-sections';
 const DEFAULT_SIDEBAR_WIDTH = 480;
 const MIN_SIDEBAR_WIDTH = 360;
 const MAX_SIDEBAR_WIDTH = 840;
+const MIN_CHAT_AREA_WIDTH = 400;
 const SECTION_STYLES: Record<SectionTone, {
   panel: string;
   glow: string;
@@ -336,6 +337,7 @@ export default function ChatContextSidebar({
   const [isResizing, setIsResizing] = useState(false);
   const [previewFile, setPreviewFile] = useState<SessionContextFileItem | SessionContextOutputItem | null>(null);
   const [previewTask, setPreviewTask] = useState<SessionContextTaskItem | null>(null);
+  const [previewContent, setPreviewContent] = useState<string | null>(null);
   const asideRef = useRef<HTMLElement | null>(null);
   const isCollapsed = controlledCollapsed ?? uncontrolledCollapsed;
   const isSidebarCollapsed = !isMobile && isCollapsed;
@@ -552,7 +554,7 @@ export default function ChatContextSidebar({
     }
     setPreviewFile(file);
   }, [markFileReviewed]);
-  const handleClosePreview = useCallback(() => { setPreviewFile(null); setPreviewTask(null); }, []);
+  const handleClosePreview = useCallback(() => { setPreviewFile(null); setPreviewTask(null); setPreviewContent(null); }, []);
   const handleOpenInEditor = useCallback((filePath: string) => {
     setPreviewFile(null);
     onFileOpen?.(filePath);
@@ -560,6 +562,46 @@ export default function ChatContextSidebar({
   const handleTaskPreview = useCallback((task: SessionContextTaskItem) => {
     setPreviewTask(task);
   }, []);
+  const handleSkillPreview = useCallback(async (entry: SessionContextTaskItem) => {
+    // If we already have a resolved path under the project, use the file preview directly
+    if (entry.path && sessionProjectPath && entry.path.startsWith(sessionProjectPath)) {
+      const relativePath = entry.path.slice(sessionProjectPath.length).replace(/^\//, '');
+      setPreviewContent(null);
+      setPreviewFile({
+        key: entry.key,
+        name: 'SKILL.md',
+        relativePath,
+        absolutePath: entry.path,
+        reasons: ['Skill'],
+        count: entry.count,
+        lastSeenAt: entry.lastSeenAt,
+      });
+      return;
+    }
+    // Resolve via API (handles paths outside project root and skills without stored path)
+    try {
+      const response = await api.resolveSkill(entry.label, sessionProjectPath);
+      if (!response.ok) {
+        console.warn(`[Sidebar] Failed to resolve skill "${entry.label}": ${response.status}`);
+        setPreviewTask(entry);
+        return;
+      }
+      const data = await response.json();
+      setPreviewContent(data.content);
+      setPreviewFile({
+        key: entry.key,
+        name: 'SKILL.md',
+        relativePath: data.path,
+        absolutePath: data.path,
+        reasons: ['Skill'],
+        count: entry.count,
+        lastSeenAt: entry.lastSeenAt,
+      });
+    } catch (err) {
+      console.warn('[Sidebar] Skill resolve error:', err);
+      setPreviewTask(entry);
+    }
+  }, [sessionProjectPath]);
   const toggleSection = useCallback((key: SidebarSectionKey) => {
     setCollapsedSections((current) => {
       const nextValue = { ...current, [key]: !current[key] };
@@ -583,7 +625,11 @@ export default function ChatContextSidebar({
 
     const handleMouseMove = (event: globalThis.MouseEvent) => {
       const rightEdge = asideRef.current?.getBoundingClientRect().right ?? window.innerWidth;
-      const nextWidth = Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, rightEdge - event.clientX));
+      const container = asideRef.current?.parentElement;
+      const containerWidth = container?.clientWidth ?? window.innerWidth;
+      const maxAvailable = Math.max(MIN_SIDEBAR_WIDTH, containerWidth - MIN_CHAT_AREA_WIDTH);
+      const effectiveMax = Math.min(MAX_SIDEBAR_WIDTH, maxAvailable);
+      const nextWidth = Math.min(effectiveMax, Math.max(MIN_SIDEBAR_WIDTH, rightEdge - event.clientX));
       setSidebarWidth(nextWidth);
     };
 
@@ -650,14 +696,14 @@ export default function ChatContextSidebar({
         className={`flex min-h-0 flex-col bg-gradient-to-b from-card via-card to-muted/20 backdrop-blur ${
           isMobile
             ? 'w-full border-t border-border/60'
-            : `flex-shrink-0 border-l border-border/60 ${isSidebarCollapsed ? 'w-[56px]' : ''}`
+            : `overflow-hidden border-l border-border/60 ${isSidebarCollapsed ? 'w-[56px] flex-shrink-0' : 'min-w-0'}`
         }`}
         style={!isMobile && !isSidebarCollapsed ? { width: `${sidebarWidth}px` } : undefined}
       >
       <div className="border-b border-border/60 px-4 py-3.5">
         <div className="flex items-center justify-between gap-3">
           {!isSidebarCollapsed && (
-            <div className="inline-flex items-center bg-muted/60 rounded-lg p-[3px] gap-[2px]">
+            <div className="inline-flex min-w-0 items-center overflow-x-auto bg-muted/60 rounded-lg p-[3px] gap-[2px]">
               {([
                 { id: 'context' as SidebarTab, icon: FolderSearch, labelKey: 'sessionContext.sidebarTabs.context' },
                 { id: 'research' as SidebarTab, icon: FlaskConical, labelKey: 'sessionContext.sidebarTabs.research' },
@@ -672,7 +718,7 @@ export default function ChatContextSidebar({
                     key={tab.id}
                     type="button"
                     onClick={() => onSidebarTabChange?.(tab.id)}
-                    className={`relative flex items-center gap-1.5 px-2.5 py-[5px] text-xs font-medium rounded-md transition-all duration-150 ${
+                    className={`relative flex flex-shrink-0 items-center gap-1.5 px-2.5 py-[5px] text-xs font-medium rounded-md transition-all duration-150 ${
                       isActive
                         ? 'bg-background text-foreground shadow-sm'
                         : 'text-muted-foreground hover:text-foreground'
@@ -685,7 +731,7 @@ export default function ChatContextSidebar({
               })}
             </div>
           )}
-          <div className="flex items-center gap-2">
+          <div className="flex flex-shrink-0 items-center gap-2">
             {isLoadingTrace && activeSidebarTab === 'context' && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
             {!isMobile && (
               <button
@@ -831,16 +877,18 @@ export default function ChatContextSidebar({
                   <div className="h-px flex-1 bg-border/50" />
                 </div>
                 {(expandedLists.skills ? summary.skills : summary.skills.slice(0, 5)).map((entry) => (
-                  <div
+                  <button
+                    type="button"
                     key={entry.key}
-                    className="flex items-center gap-2 rounded-lg border border-violet-200/60 bg-violet-50/30 px-2.5 py-1.5 dark:border-violet-900/40 dark:bg-violet-950/20"
+                    onClick={() => handleSkillPreview(entry)}
+                    className="flex w-full items-center gap-2 rounded-lg border border-violet-200/60 bg-violet-50/30 px-2.5 py-1.5 text-left transition-all hover:border-violet-300 hover:bg-violet-50/50 dark:border-violet-900/40 dark:bg-violet-950/20 dark:hover:border-violet-800/60 dark:hover:bg-violet-950/30 cursor-pointer"
                   >
                     <Zap className="h-3 w-3 flex-shrink-0 text-violet-500/80" />
                     <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-foreground">
                       {entry.label}
                     </span>
                     <ItemBadge>{formatTimeLabel(entry.lastSeenAt, i18n.language)}</ItemBadge>
-                  </div>
+                  </button>
                 ))}
                 {summary.skills.length > 5 && (
                   <button type="button" className="w-full rounded-lg px-2 py-1 text-[11px] font-medium text-muted-foreground hover:text-foreground transition-colors" onClick={() => toggleListExpansion('skills')}>
@@ -1010,39 +1058,42 @@ export default function ChatContextSidebar({
             className="relative flex max-h-[85vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-xl"
             onClick={(e) => e.stopPropagation()}
           >
-            <button
-              type="button"
-              onClick={handleClosePreview}
-              className="absolute right-3 top-3 z-10 inline-flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
-              title={t('sessionContext.preview.closePreview')}
-            >
-              <X className="h-5 w-5" />
-            </button>
-
             {previewFile && (
               <div className="min-h-0 flex-1 overflow-y-auto">
                 <ChatContextFilePreview
                   projectName={projectName}
                   file={previewFile}
                   onOpenInEditor={handleOpenInEditor}
+                  onClose={handleClosePreview}
+                  preloadedContent={previewContent}
                 />
               </div>
             )}
 
             {previewTask && !previewFile && (
               <div className="min-h-0 flex-1 overflow-y-auto p-5">
-                <div className="mb-4 flex items-center gap-3">
-                  <span className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-sky-200/80 bg-sky-50/95 text-sky-700 shadow-sm dark:border-sky-900/40 dark:bg-sky-950/30 dark:text-sky-200">
-                    <ClipboardList className="h-4 w-4" />
-                  </span>
-                  <div>
-                    <div className="text-sm font-semibold text-foreground">{previewTask.label}</div>
-                    <div className="flex items-center gap-2 mt-0.5">
-                      <ItemBadge>{getTaskKindLabel(previewTask.kind)}</ItemBadge>
-                      <ItemBadge>{formatTimeLabel(previewTask.lastSeenAt, i18n.language)}</ItemBadge>
-                      <ItemBadge>{previewTask.count}x</ItemBadge>
+                <div className="mb-4 flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-sky-200/80 bg-sky-50/95 text-sky-700 shadow-sm dark:border-sky-900/40 dark:bg-sky-950/30 dark:text-sky-200">
+                      <ClipboardList className="h-4 w-4" />
+                    </span>
+                    <div className="min-w-0">
+                      <div className="text-sm font-semibold text-foreground truncate">{previewTask.label}</div>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        <ItemBadge>{getTaskKindLabel(previewTask.kind)}</ItemBadge>
+                        <ItemBadge>{formatTimeLabel(previewTask.lastSeenAt, i18n.language)}</ItemBadge>
+                        <ItemBadge>{previewTask.count}x</ItemBadge>
+                      </div>
                     </div>
                   </div>
+                  <button
+                    type="button"
+                    onClick={handleClosePreview}
+                    className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+                    title={t('sessionContext.preview.closePreview')}
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
                 </div>
                 {previewTask.detail && (
                   <div className="rounded-xl border border-border/60 bg-muted/10 p-4">

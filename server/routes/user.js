@@ -2,10 +2,8 @@ import express from 'express';
 import { userDb } from '../database/db.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { getSystemGitConfig } from '../utils/gitConfig.js';
-import { exec } from 'child_process';
-import { promisify } from 'util';
+import spawnAsync from '../utils/spawnAsync.js';
 
-const execAsync = promisify(exec);
 const router = express.Router();
 
 router.get('/git-config', authenticateToken, async (req, res) => {
@@ -55,8 +53,8 @@ router.post('/git-config', authenticateToken, async (req, res) => {
     userDb.updateGitConfig(userId, gitName, gitEmail);
 
     try {
-      await execAsync(`git config --global user.name "${gitName.replace(/"/g, '\\"')}"`);
-      await execAsync(`git config --global user.email "${gitEmail.replace(/"/g, '\\"')}"`);
+      await spawnAsync('git', ['config', '--global', 'user.name', gitName]);
+      await spawnAsync('git', ['config', '--global', 'user.email', gitEmail]);
       console.log(`Applied git config globally: ${gitName} <${gitEmail}>`);
     } catch (gitError) {
       console.error('Error applying git config:', gitError);

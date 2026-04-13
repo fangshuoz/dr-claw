@@ -155,11 +155,13 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(workspaceData),
     }),
-  readFile: (projectName, filePath) =>
-    authenticatedFetch(`/api/projects/${projectName}/file?filePath=${encodeURIComponent(filePath)}`),
+  readFile: (projectName, filePath, options = {}) =>
+    authenticatedFetch(`/api/projects/${projectName}/file?filePath=${encodeURIComponent(filePath)}`, options),
+  resolveSkill: (skillName, workingDir) =>
+    authenticatedFetch(`/api/skills/resolve?name=${encodeURIComponent(skillName)}&workingDir=${encodeURIComponent(workingDir || '')}`),
   /** Fetch binary file content (e.g. PDF) as Blob. absolutePath must be the full filesystem path. */
-  getFileContentBlob: (projectName, absolutePath) =>
-    authenticatedFetch(`/api/projects/${projectName}/files/content?path=${encodeURIComponent(absolutePath)}`).then((r) => {
+  getFileContentBlob: (projectName, absolutePath, options = {}) =>
+    authenticatedFetch(`/api/projects/${projectName}/files/content?path=${encodeURIComponent(absolutePath)}`, options).then((r) => {
       if (!r.ok) throw new Error(r.status === 404 ? 'Not found' : `HTTP ${r.status}`);
       return r.blob();
     }),
@@ -174,7 +176,7 @@ export const api = {
       body: JSON.stringify({ filePath }),
     }),
   getFiles: (projectName, options = {}) => {
-    const { path, maxDepth, showHidden, ...fetchOptions } = options || {};
+    const { path, maxDepth, showHidden, metadata, ...fetchOptions } = options || {};
     const params = new URLSearchParams();
 
     if (typeof path === 'string' && path) {
@@ -185,6 +187,9 @@ export const api = {
     }
     if (showHidden !== undefined && showHidden !== null) {
       params.append('showHidden', String(showHidden));
+    }
+    if (metadata !== undefined && metadata !== null) {
+      params.append('metadata', String(metadata));
     }
 
     const query = params.toString();

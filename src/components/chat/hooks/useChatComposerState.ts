@@ -39,7 +39,17 @@ import { useFileMentions } from './useFileMentions';
 import { type SlashCommand, useSlashCommands } from './useSlashCommands';
 import type { Project, ProjectSession, SessionProvider } from '../../../types/app';
 import { escapeRegExp } from '../utils/chatFormatting';
+import { isAutoResearchScenario } from '../utils/autoResearch';
 import type { SessionMode } from '../../../types/app';
+import type { BtwOverlayState } from '../view/subcomponents/BtwOverlay';
+
+const CLOSED_BTW_OVERLAY: BtwOverlayState = {
+  open: false,
+  question: '',
+  answer: '',
+  loading: false,
+  error: null,
+};
 
 type PendingViewSession = {
   sessionId: string | null;
@@ -59,6 +69,7 @@ interface UseChatComposerStateArgs {
   geminiModel: string;
   openrouterModel: string;
   localModel: string;
+  nanoModel: string;
   isLoading: boolean;
   canAbortSession: boolean;
   tokenBudget: TokenBudget | null;
@@ -78,6 +89,8 @@ interface UseChatComposerStateArgs {
   setIsUserScrolledUp: (isScrolledUp: boolean) => void;
   setPendingPermissionRequests: Dispatch<SetStateAction<PendingPermissionRequest[]>>;
   newSessionMode?: SessionMode;
+  /** Current chat messages for /btw context (Claude provider). */
+  getChatMessagesForBtw?: () => ChatMessage[];
 }
 
 interface MentionableFile {
@@ -174,6 +187,34 @@ function formatRejectedFileMessage(rejection: FileRejection) {
 const isTemporarySessionId = (sessionId: string | null | undefined) =>
   Boolean(sessionId && sessionId.startsWith('new-session-'));
 
+const BTW_TRANSCRIPT_MAX_CHARS = 120_000;
+
+function buildBtwTranscript(messages: ChatMessage[]): string {
+  const lines: string[] = [];
+  for (const m of messages) {
+    if (m.type !== 'user' && m.type !== 'assistant') {
+      continue;
+    }
+    const raw = typeof m.content === 'string' ? m.content : '';
+    const text = raw.trim();
+    if (!text) {
+      continue;
+    }
+    const label = m.type === 'user' ? 'User' : 'Assistant';
+    lines.push(`${label}: ${text}`);
+  }
+  let out = lines.join('\n\n');
+  if (out.length > BTW_TRANSCRIPT_MAX_CHARS) {
+    let cutPos = out.length - BTW_TRANSCRIPT_MAX_CHARS;
+    const nextBoundary = out.indexOf('\n\n', cutPos);
+    if (nextBoundary !== -1 && nextBoundary < cutPos + 2000) {
+      cutPos = nextBoundary + 2;
+    }
+    out = '…(earlier messages omitted)\n\n' + out.slice(cutPos);
+  }
+  return out;
+}
+
 const getRouteSessionId = () => {
   if (typeof window === 'undefined') {
     return null;
@@ -204,6 +245,7 @@ export function useChatComposerState({
   geminiModel,
   openrouterModel,
   localModel,
+  nanoModel,
   isLoading,
   canAbortSession,
   tokenBudget,
@@ -223,6 +265,7 @@ export function useChatComposerState({
   setIsUserScrolledUp,
   setPendingPermissionRequests,
   newSessionMode = 'research',
+  getChatMessagesForBtw,
 }: UseChatComposerStateArgs) {
   const { t } = useTranslation('chat');
   const [input, setInput] = useState(() => {
@@ -270,6 +313,13 @@ export function useChatComposerState({
     }
   });
   const [intakeGreeting, setIntakeGreeting] = useState<string | null>(null);
+  const [btwOverlay, setBtwOverlay] = useState<BtwOverlayState>(CLOSED_BTW_OVERLAY);
+  const btwAbortRef = useRef<AbortController | null>(null);
+  const closeBtwOverlay = useCallback(() => {
+    btwAbortRef.current?.abort();
+    btwAbortRef.current = null;
+    setBtwOverlay(CLOSED_BTW_OVERLAY);
+  }, []);
   const [pendingStageTagKeys, setPendingStageTagKeys] = useState<string[]>([]);
   const [attachedPrompt, setAttachedPrompt] = useState<AttachedPrompt | null>(null);
 
@@ -499,7 +549,20 @@ export function useChatComposerState({
           projectName: selectedProject.name,
           sessionId: currentSessionId,
           provider,
-          model: provider === 'cursor' ? cursorModel : provider === 'codex' ? codexModel : claudeModel,
+          model:
+            provider === 'cursor'
+              ? cursorModel
+              : provider === 'codex'
+                ? codexModel
+                : provider === 'gemini'
+                  ? geminiModel
+                  : provider === 'openrouter'
+                    ? openrouterModel
+                    : provider === 'local'
+                      ? localModel
+                      : provider === 'nano'
+                        ? nanoModel
+                        : claudeModel,
           tokenUsage: tokenBudget,
         };
 
@@ -528,6 +591,90 @@ export function useChatComposerState({
         }
 
         const result = (await response.json()) as CommandExecutionResult;
+        if (result.type === 'builtin' && result.action === 'btw') {
+          const { data } = result;
+          setInput('');
+          inputValueRef.current = '';
+          if (data?.error) {
+            setChatMessages((previous) => [
+              ...previous,
+              {
+                type: 'assistant',
+                content: `⚠️ ${data.error}`,
+                timestamp: Date.now(),
+              },
+            ]);
+            return;
+          }
+          if (provider !== 'claude') {
+            setChatMessages((previous) => [
+              ...previous,
+              {
+                type: 'assistant',
+                content:
+                  '`/btw` is only available with the Claude Code provider. Switch to Claude in the chat controls, then try again.',
+                timestamp: Date.now(),
+              },
+            ]);
+            return;
+          }
+          const question = typeof data?.question === 'string' ? data.question.trim() : '';
+          if (!question) {
+            return;
+          }
+          btwAbortRef.current?.abort();
+          const abortController = new AbortController();
+          btwAbortRef.current = abortController;
+          setBtwOverlay({
+            open: true,
+            question,
+            answer: '',
+            loading: true,
+            error: null,
+          });
+          try {
+            const transcript = buildBtwTranscript(getChatMessagesForBtw?.() ?? []);
+            const btwResponse = await authenticatedFetch('/api/claude/btw', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                question,
+                transcript,
+                projectPath: selectedProject.fullPath || selectedProject.path,
+                model: claudeModel,
+              }),
+              signal: abortController.signal,
+            });
+            const payload = (await btwResponse.json().catch(() => ({}))) as {
+              answer?: string;
+              error?: string;
+              message?: string;
+            };
+            if (!btwResponse.ok) {
+              throw new Error(payload?.error || payload?.message || `Request failed (${btwResponse.status})`);
+            }
+            setBtwOverlay((previous) => ({
+              ...previous,
+              loading: false,
+              answer: typeof payload.answer === 'string' ? payload.answer : '',
+              error: null,
+            }));
+          } catch (btwErr) {
+            if (abortController.signal.aborted) {
+              return;
+            }
+            const msg = btwErr instanceof Error ? btwErr.message : 'Unknown error';
+            setBtwOverlay((previous) => ({
+              ...previous,
+              loading: false,
+              error: msg,
+              answer: '',
+            }));
+          }
+          return;
+        }
         if (result.type === 'builtin') {
           handleBuiltInCommand(result);
           setInput('');
@@ -553,6 +700,11 @@ export function useChatComposerState({
       codexModel,
       currentSessionId,
       cursorModel,
+      getChatMessagesForBtw,
+      geminiModel,
+      openrouterModel,
+      localModel,
+      nanoModel,
       handleBuiltInCommand,
       handleCustomCommand,
       input,
@@ -798,7 +950,10 @@ export function useChatComposerState({
     ) => {
       event.preventDefault();
       const currentInput = inputValueRef.current;
-      if ((!currentInput.trim() && attachedFiles.length === 0 && !attachedPrompt) || isLoading || !selectedProject) {
+      if (!selectedProject) {
+        return;
+      }
+      if (!currentInput.trim() && attachedFiles.length === 0 && !attachedPrompt) {
         return;
       }
 
@@ -809,6 +964,9 @@ export function useChatComposerState({
         const matchedCommand = slashCommands.find((command: SlashCommand) => command.name === commandName);
 
         if (matchedCommand) {
+          if (isLoading && commandName !== '/btw') {
+            return;
+          }
           await executeCommand(matchedCommand, trimmedInput);
           setInput('');
           inputValueRef.current = '';
@@ -823,6 +981,10 @@ export function useChatComposerState({
           }
           return;
         }
+      }
+
+      if (isLoading) {
+        return;
       }
 
       const normalizedInput =
@@ -840,6 +1002,11 @@ export function useChatComposerState({
           messageContent = attachedPrompt.promptText;
         }
       }
+
+      // Auto-bypass permissions for autoresearch workflows
+      const effectivePermissionMode = isAutoResearchScenario(attachedPrompt?.scenarioId)
+        ? 'bypassPermissions'
+        : permissionMode;
 
       const selectedThinkingMode = thinkingModes.find((mode: { id: string; prefix?: string }) => mode.id === thinkingMode);
       if (selectedThinkingMode && selectedThinkingMode.prefix) {
@@ -1080,7 +1247,7 @@ export function useChatComposerState({
             sessionId: effectiveSessionId,
             resume: Boolean(effectiveSessionId),
             model: geminiModel,
-            permissionMode,
+            permissionMode: effectivePermissionMode,
             thinkingMode: geminiThinkingMode,
             images: uploadedImages.length > 0 ? uploadedImages : undefined,
             toolsSettings,
@@ -1102,7 +1269,7 @@ export function useChatComposerState({
             sessionId: effectiveSessionId,
             resume: Boolean(effectiveSessionId),
             model: codexModel,
-            permissionMode: permissionMode === 'plan' ? 'default' : permissionMode,
+            permissionMode: effectivePermissionMode === 'plan' ? 'default' : effectivePermissionMode,
             modelReasoningEffort: codexReasoningEffort === 'default' ? undefined : codexReasoningEffort,
             attachments: codexAttachmentPayload,
             images: uploadedImages,
@@ -1124,7 +1291,7 @@ export function useChatComposerState({
             sessionId: effectiveSessionId,
             resume: Boolean(effectiveSessionId),
             model: openrouterModel,
-            permissionMode,
+            permissionMode: effectivePermissionMode,
             toolsSettings,
             telemetryEnabled,
             sessionMode: isNewSession ? newSessionMode : selectedSession?.mode,
@@ -1146,7 +1313,26 @@ export function useChatComposerState({
             model: localModel,
             serverUrl: localStorage.getItem('local-gpu-server-url') || 'http://localhost:11434',
             gpuId: localStorage.getItem('local-gpu-selected') || undefined,
-            permissionMode,
+            permissionMode: effectivePermissionMode,
+            toolsSettings,
+            telemetryEnabled,
+            sessionMode: isNewSession ? newSessionMode : selectedSession?.mode,
+            stageTagKeys: pendingStageTagKeys,
+            stageTagSource: 'task_context',
+          },
+        });
+      } else if (provider === 'nano') {
+        console.log('[DEBUG] Sending nano-command');
+        sendMessage({
+          type: 'nano-command',
+          command: messageContent,
+          sessionId: effectiveSessionId,
+          options: {
+            cwd: resolvedProjectPath,
+            projectPath: resolvedProjectPath,
+            sessionId: effectiveSessionId,
+            resume: Boolean(effectiveSessionId),
+            model: nanoModel,
             toolsSettings,
             telemetryEnabled,
             sessionMode: isNewSession ? newSessionMode : selectedSession?.mode,
@@ -1165,7 +1351,7 @@ export function useChatComposerState({
             sessionId: effectiveSessionId,
             resume: Boolean(effectiveSessionId),
             toolsSettings,
-            permissionMode,
+            permissionMode: effectivePermissionMode,
             model: claudeModel,
             images: uploadedImages.length > 0 ? uploadedImages : undefined,
             telemetryEnabled,
@@ -1206,6 +1392,7 @@ export function useChatComposerState({
       geminiModel,
       openrouterModel,
       localModel,
+      nanoModel,
       isLoading,
       onSessionActive,
       pendingViewSessionRef,
@@ -1668,5 +1855,7 @@ export function useChatComposerState({
     setIntakeGreeting,
     setPendingStageTagKeys,
     submitProgrammaticInput,
+    btwOverlay,
+    closeBtwOverlay,
   };
 }
