@@ -892,7 +892,6 @@ export function useProjectsState({
   }, [isMobile, navigate]);
 
   const handleOpenCompute = useCallback(() => {
-    setSelectedProject(null);
     setSelectedSession(null);
     setActiveTab('compute');
     navigate('/');
