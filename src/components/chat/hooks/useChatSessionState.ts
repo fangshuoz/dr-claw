@@ -6,6 +6,7 @@ import { RESUMING_STATUS_TEXT } from '../types/types';
 import type { ChatMessage, Provider, TokenBudget } from '../types/types';
 import type { Project, ProjectSession } from '../../../types/app';
 import { clearSessionTimerStart, readSessionTimerStart, safeLocalStorage } from '../utils/chatStorage';
+import { hydrateStoredChatMessages } from '../utils/chatMessages';
 import {
   convertCursorSessionMessages,
   convertSessionMessages,
@@ -15,6 +16,28 @@ import {
 
 const MESSAGES_PER_PAGE = 20;
 const INITIAL_VISIBLE_MESSAGES = 100;
+
+// LRU message cache for instant tab switching. Max 10 sessions cached.
+const SESSION_MESSAGE_CACHE_MAX = 10;
+const sessionMessageCache = new Map<string, { messages: any[]; tokenUsage?: any; total: number; hasMore: boolean }>();
+function cacheSessionMessages(key: string, data: { messages: any[]; tokenUsage?: any; total: number; hasMore: boolean }) {
+  if (sessionMessageCache.size >= SESSION_MESSAGE_CACHE_MAX) {
+    const oldest = sessionMessageCache.keys().next().value;
+    if (oldest) sessionMessageCache.delete(oldest);
+  }
+  sessionMessageCache.set(key, data);
+}
+function getCachedSessionMessages(key: string) {
+  const data = sessionMessageCache.get(key);
+  if (!data) return null;
+  sessionMessageCache.delete(key);
+  sessionMessageCache.set(key, data);
+  return data;
+}
+export function invalidateSessionMessageCache(projectName: string, sessionId: string) {
+  sessionMessageCache.delete(`${projectName}:${sessionId}`);
+}
+
 /** Grace period for WebSocket status-check response before clearing stale resume state */
 const STATUS_VALIDATION_TIMEOUT_MS = 5000;
 
@@ -81,7 +104,7 @@ export function useChatSessionState({
       const saved = safeLocalStorage.getItem(`chat_messages_${selectedProject.name}`);
       if (saved) {
         try {
-          return JSON.parse(saved) as ChatMessage[];
+          return hydrateStoredChatMessages(JSON.parse(saved) as ChatMessage[]);
         } catch {
           console.error('Failed to parse saved chat messages, resetting');
           safeLocalStorage.removeItem(`chat_messages_${selectedProject.name}`);
@@ -96,15 +119,7 @@ export function useChatSessionState({
   const setChatMessages = useCallback((updater: React.SetStateAction<ChatMessage[]>) => {
     _setChatMessages((prev) => {
       const next = typeof updater === 'function' ? updater(prev) : updater;
-      let hasChanges = false;
-      const final = next.map((msg) => {
-        if (!msg.id && !msg.messageId && !msg.toolId && !msg.toolCallId && !msg.blobId && !msg.rowid && !msg.sequence) {
-          hasChanges = true;
-          return { ...msg, messageId: (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : Math.random().toString(36).substring(2, 15) };
-        }
-        return msg;
-      });
-      return hasChanges ? final : next;
+      return hydrateStoredChatMessages(next);
     });
   }, []);
 
@@ -189,7 +204,17 @@ export function useChatSessionState({
       }
 
       const isInitialLoad = !loadMore;
+      const cacheKey = `${projectName}:${sessionId}`;
       if (isInitialLoad) {
+        const cached = getCachedSessionMessages(cacheKey);
+        if (cached) {
+          if (cached.tokenUsage) setTokenBudget(cached.tokenUsage);
+          setHasMoreMessages(cached.hasMore);
+          setTotalMessages(cached.total);
+          messagesOffsetRef.current = cached.messages.length;
+          setIsLoadingSessionMessages(false);
+          return cached.messages;
+        }
         setIsLoadingSessionMessages(true);
       } else {
         setIsLoadingMoreMessages(true);
@@ -219,6 +244,9 @@ export function useChatSessionState({
           setHasMoreMessages(Boolean(data.hasMore));
           setTotalMessages(Number(data.total || 0));
           messagesOffsetRef.current = currentOffset + loadedCount;
+          if (isInitialLoad) {
+            cacheSessionMessages(cacheKey, { messages: data.messages || [], tokenUsage: data.tokenUsage, total: Number(data.total || 0), hasMore: Boolean(data.hasMore) });
+          }
           return data.messages || [];
         }
 
@@ -226,6 +254,9 @@ export function useChatSessionState({
         setHasMoreMessages(false);
         setTotalMessages(messages.length);
         messagesOffsetRef.current = messages.length;
+        if (isInitialLoad) {
+          cacheSessionMessages(cacheKey, { messages, tokenUsage: data.tokenUsage, total: messages.length, hasMore: false });
+        }
         return messages;
       } catch (error) {
         console.error('Error loading session messages:', error);

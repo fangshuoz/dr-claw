@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import QuickSettingsPanel from '../../QuickSettingsPanel';
+import CodeEditor from '../../CodeEditor';
 import ChatTaskProgressPill from './subcomponents/ChatTaskProgressPill';
 import { useTasksSettings } from '../../../contexts/TasksSettingsContext';
 import { useTaskMaster } from '../../../contexts/TaskMasterContext';
@@ -8,11 +9,11 @@ import ChatMessagesPane from './subcomponents/ChatMessagesPane';
 import ChatComposer from './subcomponents/ChatComposer';
 import BtwOverlay from './subcomponents/BtwOverlay';
 import ChatContextSidebar from './subcomponents/ChatContextSidebar';
-import ChatContextFilePreview, { type PreviewFileTarget } from './subcomponents/ChatContextFilePreview';
 import GuidedPromptStarter from './subcomponents/GuidedPromptStarter';
 import { RESUMING_STATUS_TEXT } from '../types/types';
 import type { ChatInterfaceProps } from '../types/types';
 import type { ProviderAvailability } from '../types/types';
+import type { ChatMessage } from '../types/types';
 import { useChatProviderState } from '../hooks/useChatProviderState';
 import { useChatSessionState } from '../hooks/useChatSessionState';
 import { useChatRealtimeHandlers } from '../hooks/useChatRealtimeHandlers';
@@ -22,8 +23,10 @@ import { authenticatedFetch } from '../../../utils/api';
 import { readCliAvailability, writeCliAvailability } from '../../../utils/cliAvailability';
 import { Button } from '../../ui/button';
 import type { PendingAutoIntake } from '../../../types/app';
+import type { EditingFile, DiffInfo } from '../../main-content/types/types';
 import { CLAUDE_MODELS, CURSOR_MODELS, CODEX_MODELS, GEMINI_MODELS, LOCAL_MODELS, NANO_CLAUDE_CODE_MODELS, OPENROUTER_MODELS } from '../../../../shared/modelConstants';
 import { getProviderDisplayName } from '../utils/chatFormatting';
+import { buildEditableMessageDraft, buildReplayMessageDraft, getChatMessageId, getMessageReplayContent } from '../utils/chatMessages';
 import { normalizePath, toRelativePath, isSafePath, fileNameFromPath } from '../../../utils/pathUtils';
 import { useDeviceSettings } from '../../../hooks/useDeviceSettings';
 
@@ -84,7 +87,6 @@ function ChatInterface({
   ws,
   sendMessage,
   latestMessage,
-  onFileOpen,
   onInputFocusChange,
   onSessionActive,
   onSessionInactive,
@@ -113,28 +115,24 @@ function ChatInterface({
   const { t } = useTranslation('chat');
   const { isMobile } = useDeviceSettings({ trackPWA: false });
   const [isShellEditPromptOpen, setIsShellEditPromptOpen] = useState(false);
-  const [previewFile, setPreviewFile] = useState<PreviewFileTarget | null>(null);
+  const [editingFile, setEditingFile] = useState<EditingFile | null>(null);
 
-  const handleFilePreview = useCallback((filePath: string) => {
+  const handleFileOpen = useCallback((filePath: string, diffInfo?: unknown) => {
     const root = selectedProject?.fullPath || selectedProject?.path || '';
     const relative = toRelativePath(filePath, root);
     if (!relative || !isSafePath(relative)) return;
     const name = fileNameFromPath(normalizePath(filePath));
-    setPreviewFile({
+    setEditingFile({
       name,
-      relativePath: relative,
-      absolutePath: normalizePath(filePath),
+      path: relative,
+      projectName: selectedProject?.name,
+      diffInfo: (diffInfo ?? null) as DiffInfo | null,
     });
   }, [selectedProject]);
 
-  const handleClosePreview = useCallback(() => {
-    setPreviewFile(null);
+  const handleCloseEditor = useCallback(() => {
+    setEditingFile(null);
   }, []);
-
-  const handleOpenPreviewInEditor = useCallback((filePath: string) => {
-    setPreviewFile(null);
-    onFileOpen?.(filePath);
-  }, [onFileOpen]);
 
   const [sidebarTab, setSidebarTab] = useState<SidebarTab>(() => {
     if (typeof window === 'undefined') return 'context';
@@ -301,6 +299,8 @@ function ChatInterface({
     submitProgrammaticInput,
     btwOverlay,
     closeBtwOverlay,
+    submitProgrammaticMessage,
+    loadMessageIntoComposer,
   } = useChatComposerState({
     selectedProject,
     selectedSession,
@@ -322,7 +322,7 @@ function ChatInterface({
     sendByCtrlEnter,
     onSessionActive,
     onInputFocusChange,
-    onFileOpen,
+    onFileOpen: handleFileOpen,
     onShowSettings,
     pendingViewSessionRef,
     scrollToBottom,
@@ -365,13 +365,54 @@ function ChatInterface({
 
   const handleRetry = useCallback(() => {
     const msgs = chatMessagesForBtwRef.current;
-    let lastUserMessage: (typeof msgs)[number] | undefined;
+    let lastUserMessage: ChatMessage | undefined;
     for (let i = msgs.length - 1; i >= 0; i--) {
       if (msgs[i].type === 'user') { lastUserMessage = msgs[i]; break; }
     }
-    if (!lastUserMessage?.content) return;
-    submitProgrammaticInput(lastUserMessage.content);
-  }, [submitProgrammaticInput]);
+    if (!lastUserMessage) return;
+    const replayDraft = buildReplayMessageDraft(lastUserMessage);
+    if (!replayDraft) return;
+    submitProgrammaticMessage(replayDraft);
+  }, [submitProgrammaticMessage]);
+
+  const handleCopyMessage = useCallback(async (message: ChatMessage) => {
+    const text = getMessageReplayContent(message).trim();
+    if (!text || typeof navigator === 'undefined' || !navigator.clipboard?.writeText) {
+      return false;
+    }
+
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch (error) {
+      console.error('Failed to copy message text:', error);
+      return false;
+    }
+  }, []);
+
+  const handleResendMessage = useCallback((message: ChatMessage) => {
+    const replayDraft = buildReplayMessageDraft(message);
+    if (!replayDraft) {
+      return;
+    }
+
+    submitProgrammaticMessage(replayDraft);
+  }, [submitProgrammaticMessage]);
+
+  const handleEditMessage = useCallback((message: ChatMessage) => {
+    const editableDraft = buildEditableMessageDraft(message);
+    if (!editableDraft) {
+      return;
+    }
+
+    const didLoad = loadMessageIntoComposer({
+      ...editableDraft,
+      editingMessageId: getChatMessageId(message),
+    });
+    if (didLoad) {
+      scrollToBottomAndReset();
+    }
+  }, [loadMessageIntoComposer, scrollToBottomAndReset]);
 
   const autoIntakeTriggeredRef = useRef(false);
   const lastAutoIntakeTriggerIdRef = useRef<string | null>(null);
@@ -574,11 +615,11 @@ function ChatInterface({
   }, [selectedProject?.name, selectedSession?.id]);
 
   useEffect(() => {
-    setPreviewFile(null);
+    setEditingFile(null);
   }, [selectedSession?.id, selectedProject?.name]);
 
   useEffect(() => {
-    if (!previewFile) {
+    if (!editingFile) {
       return undefined;
     }
 
@@ -588,12 +629,12 @@ function ChatInterface({
       }
 
       event.stopPropagation();
-      setPreviewFile(null);
+      setEditingFile(null);
     };
 
     document.addEventListener('keydown', handlePreviewEscape);
     return () => document.removeEventListener('keydown', handlePreviewEscape);
-  }, [previewFile]);
+  }, [editingFile]);
 
   useEffect(() => {
     if (!isLoading || !canAbortSession) {
@@ -748,7 +789,7 @@ function ChatInterface({
   return (
     <>
       <div className={`h-full flex min-h-0 ${isMobile ? 'flex-col' : 'flex-row'}`}>
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
           <div className={`flex min-h-0 flex-1 flex-col ${isEmpty ? 'justify-start pt-[18vh] overflow-y-auto' : ''}`}>
         {shouldShowImportedProjectAnalysisPrompt && (
           <div className="mx-auto mt-4 w-full max-w-3xl px-3 sm:px-4">
@@ -839,10 +880,9 @@ function ChatInterface({
           loadAllJustFinished={loadAllJustFinished}
           showLoadAllOverlay={showLoadAllOverlay}
           createDiff={createDiff}
-          onFileOpen={onFileOpen}
+          onFileOpen={handleFileOpen}
           onShowSettings={onShowSettings}
           onGrantToolPermission={handleGrantToolPermission}
-          onSuggestShellEdit={handleOpenShellEditPrompt}
           autoExpandTools={autoExpandTools}
           showRawParameters={showRawParameters}
           showThinking={showThinking}
@@ -851,6 +891,10 @@ function ChatInterface({
           statusText={statusTextOverride || claudeStatus?.text}
           newSessionMode={newSessionMode}
           onRetry={handleRetry}
+          onCopyMessage={handleCopyMessage}
+          onResendMessage={handleResendMessage}
+          onEditMessage={handleEditMessage}
+          onSuggestShellEdit={handleOpenShellEditPrompt}
         />
 
         <ChatComposer
@@ -957,6 +1001,17 @@ function ChatInterface({
           />
         )}
 
+        {editingFile && selectedProject && (
+          <CodeEditor
+            file={editingFile}
+            onClose={handleCloseEditor}
+            projectPath={selectedProject.fullPath || selectedProject.path}
+            selectedProject={selectedProject}
+            onStartWorkspaceQa={onStartWorkspaceQa}
+            displayMode="embedded"
+          />
+        )}
+
           </div>
         </div>
 
@@ -967,7 +1022,7 @@ function ChatInterface({
           provider={provider}
           newSessionMode={newSessionMode}
           chatMessages={chatMessages}
-          onFileOpen={handleFilePreview}
+          onFileOpen={handleFileOpen}
           activeSidebarTab={sidebarTab}
           onSidebarTabChange={setSidebarTab}
           isCollapsed={isSidebarCollapsed}
@@ -976,27 +1031,6 @@ function ChatInterface({
           onStartTask={handleStartTaskInChat}
         />
       </div>
-
-      {previewFile && selectedProject && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm"
-          onClick={handleClosePreview}
-        >
-          <div
-            className="relative flex max-h-[85vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-xl"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="min-h-0 flex-1 overflow-y-auto">
-              <ChatContextFilePreview
-                projectName={selectedProject.name}
-                file={previewFile}
-                onOpenInEditor={handleOpenPreviewInEditor}
-                onClose={handleClosePreview}
-              />
-            </div>
-          </div>
-        </div>
-      )}
 
       {isShellEditPromptOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
