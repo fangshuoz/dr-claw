@@ -108,6 +108,22 @@ const TOOLS = [
       properties: {},
     },
   },
+  {
+    name: 'compute_check_available',
+    description:
+      'Check whether compute resources (GPU) are available for running experiments. Returns COMPUTE_OK=true/false with details. Use this BEFORE running any experiment to avoid hallucinating results when no GPU is available. If COMPUTE_OK=false, STOP and inform the user — do NOT proceed with experiments.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        environment: {
+          type: 'string',
+          enum: ['local', 'remote', 'auto'],
+          description: 'Which environment to check. "auto" checks remote first (if configured), then local. Default: auto.',
+          default: 'auto',
+        },
+      },
+    },
+  },
 ];
 
 // ─── Tool handlers ───
@@ -185,6 +201,30 @@ async function handleTool(name, args) {
         (j) => `${j.jobId}\t${j.name}\t${j.partition}\t${j.state}\t${j.elapsed}\t${j.timeLimit}`,
       );
       return [header, ...rows].join('\n');
+    }
+
+    case 'compute_check_available': {
+      const { checkComputeAvailability } = await import('./utils/computeCheck.js');
+      const env = args.environment || 'auto';
+      const result = await checkComputeAvailability(env);
+
+      const lines = [
+        `COMPUTE_OK=${result.available}`,
+        `REASON=${result.reason}`,
+      ];
+      if (result.details) lines.push(result.details);
+
+      if (!result.available) {
+        lines.push(
+          '',
+          '**CRITICAL SAFETY RULE**: Do NOT proceed with experiment execution.',
+          'Inform the user that compute resources are unavailable.',
+          'Do NOT fabricate or hallucinate experiment results.',
+          'Suggest: gpu: modal (serverless), gpu: vast (on-demand), or configure a remote server.',
+        );
+      }
+
+      return lines.filter(Boolean).join('\n');
     }
 
     default:

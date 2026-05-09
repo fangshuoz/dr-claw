@@ -14,6 +14,112 @@ const router = express.Router();
 // Data directory for news config & results
 const DATA_DIR = path.join(__dirname, '..', 'data');
 const SCRIPTS_DIR = path.join(__dirname, '..', 'scripts');
+
+// ---------------------------------------------------------------------------
+// Sensitive fields per source. Values for these fields are NEVER stored in
+// the news-config-*.json file or returned by GET /api/news/config/:source —
+// they live in credentialsDb (per-user, encrypted-at-rest by the same path
+// as other credentials). The config JSON only carries `<field>_set: bool`
+// for UI display.
+// ---------------------------------------------------------------------------
+const SECRET_FIELDS_BY_SOURCE = {
+  github:      { api_token:  'news_github_token' },
+  huggingface: { api_token:  'news_huggingface_token' },
+  wechat:      { access_key: 'news_wechat_access_key' },
+};
+
+function hasActiveNewsCredential(userId, credentialType) {
+  try {
+    return Boolean(credentialsDb.getActiveCredential(userId, credentialType));
+  } catch {
+    return false;
+  }
+}
+
+// credentialsDb has no native upsert. We enforce one-active-credential-per-type
+// by deleting all rows of that type before inserting. (Per-user, so blast
+// radius is the user's own news settings.)
+function upsertSingleNewsCredential(userId, credentialType, name, value) {
+  try {
+    const existing = credentialsDb.getCredentials(userId, credentialType) || [];
+    for (const cred of existing) {
+      try { credentialsDb.deleteCredential(userId, cred.id); } catch { /* keep going */ }
+    }
+    credentialsDb.createCredential(userId, name, credentialType, value, null);
+  } catch (err) {
+    console.error(`[news] failed to upsert ${credentialType}: ${err.message}`);
+    throw err;
+  }
+}
+
+function deleteNewsCredentialsByType(userId, credentialType) {
+  try {
+    const existing = credentialsDb.getCredentials(userId, credentialType) || [];
+    for (const cred of existing) {
+      try { credentialsDb.deleteCredential(userId, cred.id); } catch { /* keep going */ }
+    }
+  } catch (err) {
+    console.error(`[news] failed to delete ${credentialType}: ${err.message}`);
+  }
+}
+
+function readActiveNewsCredential(userId, credentialType) {
+  try {
+    return credentialsDb.getActiveCredential(userId, credentialType) || '';
+  } catch {
+    return '';
+  }
+}
+
+// One-time migration: scrub plaintext tokens that may live in news-config-*.json
+// from earlier versions of this code path. Moves them into credentialsDb (only
+// when no credential exists yet) and rewrites the file without the secret.
+async function migrateLegacySecretsInPlace(sourceName, userId, configPath, parsedConfig) {
+  const fieldMap = SECRET_FIELDS_BY_SOURCE[sourceName];
+  if (!fieldMap) return parsedConfig;
+
+  let mutated = false;
+  for (const [field, credentialType] of Object.entries(fieldMap)) {
+    const legacyValue = parsedConfig?.[field];
+    if (typeof legacyValue === 'string' && legacyValue.trim()) {
+      if (!hasActiveNewsCredential(userId, credentialType)) {
+        try {
+          upsertSingleNewsCredential(
+            userId,
+            credentialType,
+            `${sourceName}_${field}`,
+            legacyValue.trim(),
+          );
+        } catch { /* upsert errors already logged */ }
+      }
+      delete parsedConfig[field];
+      mutated = true;
+    }
+  }
+
+  if (mutated) {
+    try {
+      await fs.writeFile(configPath, JSON.stringify(parsedConfig, null, 2), 'utf8');
+    } catch (err) {
+      console.warn(
+        `[news] failed to scrub legacy secret from ${configPath}: ${err.message}`,
+      );
+    }
+  }
+  return parsedConfig;
+}
+
+function decorateWithSecretFlags(sourceName, userId, config) {
+  const fieldMap = SECRET_FIELDS_BY_SOURCE[sourceName];
+  if (!fieldMap) return config;
+
+  const safeConfig = { ...config };
+  for (const [field, credentialType] of Object.entries(fieldMap)) {
+    delete safeConfig[field];
+    safeConfig[`${field}_set`] = hasActiveNewsCredential(userId, credentialType);
+  }
+  return safeConfig;
+}
 const PYTHON_RUNTIME_CACHE_TTL_MS = 30_000;
 const PYTHON_RUNTIME_INSPECTION_CODE = [
   'import importlib.util, json, os, ssl, sys',
@@ -172,13 +278,20 @@ const SOURCE_REGISTRY = {
     requiresCredentials: false,
   },
   huggingface: {
-    label: 'HuggingFace Daily Papers',
+    label: 'HuggingFace',
     script: 'research-news/search_huggingface.py',
     configFile: 'news-config-huggingface.json',
     resultsFile: 'news-results-huggingface.json',
     defaultConfig: {
       research_domains: {},
       top_n: 30,
+      // Comma-separated list of HF Hub modes to fetch.
+      // Valid: papers, models, datasets, spaces.
+      modes: 'papers,models,datasets,spaces',
+      per_mode_limit: 40,
+      // HF token (hf_xxx) is stored in credentialsDb, not in this config file.
+      // The PUT route accepts an `api_token` field and routes it to the
+      // credential store; GET returns `api_token_set: bool` instead.
     },
     requiresCredentials: false,
   },
@@ -216,6 +329,56 @@ const SOURCE_REGISTRY = {
       },
       top_n: 10,
       keywords: '大模型,AI论文,人工智能',
+    },
+    requiresCredentials: false,
+  },
+  github: {
+    label: 'GitHub',
+    script: 'research-news/search_github.py',
+    configFile: 'news-config-github.json',
+    resultsFile: 'news-results-github.json',
+    defaultConfig: {
+      research_domains: {
+        'Large Language Models': {
+          keywords: ['llm', 'large language model', 'transformer', 'foundation model'],
+          arxiv_categories: [],
+          priority: 5,
+        },
+        'AI Agents': {
+          keywords: ['agent', 'autonomous', 'multi-agent', 'orchestration'],
+          arxiv_categories: [],
+          priority: 4,
+        },
+      },
+      top_n: 12,
+      // GitHub-specific
+      language: '',                 // optional: python, typescript, ...
+      time_window: 'weekly',        // daily | weekly | monthly
+      include_trending: true,
+      max_search_pages: 1,
+      // GitHub token (ghp_xxx) is stored in credentialsDb, not in this config
+      // file. PUT accepts `api_token`; GET returns `api_token_set: bool`.
+    },
+    requiresCredentials: false,
+  },
+  wechat: {
+    label: 'WeChat 公众号',
+    script: 'research-news/search_wechat.py',
+    configFile: 'news-config-wechat.json',
+    resultsFile: 'news-results-wechat.json',
+    defaultConfig: {
+      research_domains: {},
+      top_n: 12,
+      // RSSHub instance — public default, configurable in Settings.
+      instance_url: 'https://rsshub.app',
+      // Comma-separated WeChat 公众号 routes/IDs. Examples:
+      //   wechat/ce/huxiu_com
+      //   https://rsshub.app/wechat/ce/ifanr
+      //   huxiu_com  (bare ID → wechat/ce/<id>)
+      accounts: '',
+      // RSSHub access key is stored in credentialsDb, not in this config file.
+      // PUT accepts `access_key`; GET returns `access_key_set: bool`.
+      per_account_limit: 20,
     },
     requiresCredentials: false,
   },
@@ -276,6 +439,11 @@ router.get('/sources', async (req, res) => {
 
 // ---------------------------------------------------------------------------
 // GET /api/news/config/:source — per-source config
+//
+// Secret fields (see SECRET_FIELDS_BY_SOURCE) are NEVER returned. Instead the
+// response carries `<field>_set: bool` flags for the UI to render a "saved"
+// indicator. Legacy plaintext values found in older config files are migrated
+// into credentialsDb on first read and scrubbed from disk.
 // ---------------------------------------------------------------------------
 router.get('/config/:source', async (req, res) => {
   try {
@@ -284,20 +452,33 @@ router.get('/config/:source', async (req, res) => {
 
     await ensureDataDir();
     const configPath = path.join(DATA_DIR, entry.configFile);
-    const data = await fs.readFile(configPath, 'utf8');
-    res.json(JSON.parse(data));
-  } catch (err) {
-    if (err.code === 'ENOENT') {
-      const entry = getSourceEntry(req.params.source);
-      res.json(entry.defaultConfig);
-    } else {
-      res.status(500).json({ error: 'Failed to read config', details: err.message });
+
+    let parsed;
+    try {
+      parsed = JSON.parse(await fs.readFile(configPath, 'utf8'));
+    } catch (err) {
+      if (err.code !== 'ENOENT') throw err;
+      parsed = { ...entry.defaultConfig };
     }
+
+    parsed = await migrateLegacySecretsInPlace(
+      req.params.source, req.user.id, configPath, parsed,
+    );
+    res.json(decorateWithSecretFlags(req.params.source, req.user.id, parsed));
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to read config', details: err.message });
   }
 });
 
 // ---------------------------------------------------------------------------
 // PUT /api/news/config/:source — save per-source config
+//
+// Secret fields are routed to credentialsDb and stripped from the JSON file:
+//   <field>: <non-empty string>  → upsert credential
+//   <field>: null                → delete credential (explicit clear)
+//   <field>: '' or absent        → no-op (preserve existing credential)
+//
+// `<field>_set` flags from a round-trip GET are also stripped on write.
 // ---------------------------------------------------------------------------
 router.put('/config/:source', async (req, res) => {
   try {
@@ -305,8 +486,31 @@ router.put('/config/:source', async (req, res) => {
     if (!entry) return res.status(404).json({ error: `Unknown source: ${req.params.source}` });
 
     await ensureDataDir();
+    const incoming = { ...(req.body || {}) };
+    const fieldMap = SECRET_FIELDS_BY_SOURCE[req.params.source] || {};
+
+    for (const [field, credentialType] of Object.entries(fieldMap)) {
+      if (Object.prototype.hasOwnProperty.call(incoming, field)) {
+        const raw = incoming[field];
+        if (raw === null) {
+          deleteNewsCredentialsByType(req.user.id, credentialType);
+        } else if (typeof raw === 'string' && raw.trim()) {
+          upsertSingleNewsCredential(
+            req.user.id,
+            credentialType,
+            `${req.params.source}_${field}`,
+            raw.trim(),
+          );
+        }
+        // Anything else (empty string, non-string) is a no-op.
+      }
+      // Always strip the secret + the round-tripped flag from the on-disk JSON.
+      delete incoming[field];
+      delete incoming[`${field}_set`];
+    }
+
     const configPath = path.join(DATA_DIR, entry.configFile);
-    await fs.writeFile(configPath, JSON.stringify(req.body, null, 2), 'utf8');
+    await fs.writeFile(configPath, JSON.stringify(incoming, null, 2), 'utf8');
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: 'Failed to save config', details: err.message });
@@ -373,12 +577,84 @@ async function handleSearch(sourceName, req, res) {
       args.push('--keywords', config.keywords);
     }
 
+    if (sourceName === 'huggingface') {
+      const modes = (typeof config.modes === 'string' && config.modes.trim())
+        ? config.modes.trim()
+        : 'papers';
+      args.push('--modes', modes);
+      if (Number.isFinite(config.per_mode_limit) && config.per_mode_limit > 0) {
+        args.push('--per-mode-limit', String(config.per_mode_limit));
+      }
+    }
+
+    if (sourceName === 'github') {
+      if (typeof config.language === 'string' && config.language.trim()) {
+        args.push('--language', config.language.trim());
+      }
+      const timeWindow = ['daily', 'weekly', 'monthly'].includes(config.time_window)
+        ? config.time_window
+        : 'weekly';
+      args.push('--time-window', timeWindow);
+      args.push('--include-trending', config.include_trending === false ? 'false' : 'true');
+      if (Number.isFinite(config.max_search_pages) && config.max_search_pages > 0) {
+        args.push('--max-search-pages', String(Math.min(3, config.max_search_pages)));
+      }
+    }
+
+    if (sourceName === 'wechat') {
+      const instance = (typeof config.instance_url === 'string' && config.instance_url.trim())
+        ? config.instance_url.trim()
+        : 'https://rsshub.app';
+      args.push('--instance', instance);
+
+      // Accounts may be stored as a string (comma/newline-separated) or array.
+      let accountsList = [];
+      if (Array.isArray(config.accounts)) {
+        accountsList = config.accounts.map((a) => String(a).trim()).filter(Boolean);
+      } else if (typeof config.accounts === 'string') {
+        accountsList = config.accounts
+          .split(/[\n,]/)
+          .map((a) => a.trim())
+          .filter(Boolean);
+      }
+      if (accountsList.length > 0) {
+        args.push('--accounts', accountsList.join(','));
+      }
+
+      const wechatAccessKey = readActiveNewsCredential(
+        req.user.id,
+        SECRET_FIELDS_BY_SOURCE.wechat.access_key,
+      );
+      if (wechatAccessKey) {
+        args.push('--access-key', wechatAccessKey);
+      }
+      if (Number.isFinite(config.per_account_limit) && config.per_account_limit > 0) {
+        args.push('--per-account-limit', String(config.per_account_limit));
+      }
+    }
+
     // Build env — pass credentials if required.
     // Strip __PYVENV_LAUNCHER__ so uv-installed Python CLIs invoked by the
     // search scripts find the correct stdlib (macOS Python framework sets this
     // variable and it confuses child interpreters with a different version).
     const env = { ...process.env };
     delete env.__PYVENV_LAUNCHER__;
+
+    // UI-supplied API tokens are read from credentialsDb (per-user) and
+    // forwarded to the spawned fetcher only via the child process env. They
+    // are never persisted in the news config JSON or echoed back over the API.
+    if (sourceName === 'github') {
+      const token = readActiveNewsCredential(
+        req.user.id, SECRET_FIELDS_BY_SOURCE.github.api_token,
+      );
+      if (token) env.GITHUB_TOKEN = token;
+    }
+    if (sourceName === 'huggingface') {
+      const token = readActiveNewsCredential(
+        req.user.id, SECRET_FIELDS_BY_SOURCE.huggingface.api_token,
+      );
+      if (token) env.HF_TOKEN = token;
+    }
     if (entry.requiresCredentials) {
       try {
         const credValue = credentialsDb.getActiveCredential(req.user.id, entry.credentialType);

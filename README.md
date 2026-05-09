@@ -66,6 +66,26 @@ Dr. Claw is a general-purpose AI research assistant designed to help researchers
 </p>
 
 <details>
+<summary><strong>📰 News Dashboard</strong> — A unified, scored feed across arXiv, HuggingFace, GitHub, WeChat 公众号, X, and Xiaohongshu</summary>
+
+<p>Filter by source, configure your research domains, and never leave your workspace to keep up with the field — covers arXiv, HuggingFace (Daily Papers + Models / Datasets / Spaces), GitHub trending & new repos, WeChat 公众号 (via RSSHub), X, and Xiaohongshu.</p>
+<p align="center">
+  <img src="public/screenshots/dr-claw-newsfeed.png" alt="Dr. Claw news dashboard with multi-source feed" width="1000">
+</p>
+
+</details>
+
+<details>
+<summary><strong>📚 Skills Library</strong> — 100+ built-in research skills, auto-discovered and applied by agents</summary>
+
+<p>Browse skills spanning ideation, code survey, experiment development & analysis, paper writing, review response, and delivery — agents auto-discover and apply them as task-level assistance throughout the pipeline.</p>
+<p align="center">
+  <img src="public/screenshots/dr-claw-skillsLib.png" alt="Dr. Claw skills library interface" width="1000">
+</p>
+
+</details>
+
+<details>
 <summary><strong>The Philosophy: Leveraged Cognition</strong></summary>
 
 <p align="center">

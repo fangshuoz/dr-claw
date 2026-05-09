@@ -72,11 +72,13 @@ import computeRoutes from './routes/compute.js';
 import newsRoutes from './routes/news.js';
 import autoResearchRoutes from './routes/auto-research.js';
 import referencesRoutes from './routes/references.js';
+import quickQaRoutes from './routes/quick-qa.js';
 import { initializeDatabase, sessionDb, tagDb } from './database/db.js';
 import { validateApiKey, authenticateToken, authenticateWebSocket } from './middleware/auth.js';
 import { IS_PLATFORM } from './constants/config.js';
 import { enqueueTelemetryEvent } from './telemetry.js';
 import { resolveCursorCliCommand, isCursorLoginCommand, isGeminiLoginCommand, normalizeCursorLoginCommand } from './utils/cursorCommand.js';
+import { buildCodexCliEnv, codexCommandForShell } from './utils/codexCli.js';
 import { getGeminiApiKeyForUser, withGeminiApiKeyEnv } from './utils/geminiApiKey.js';
 import {
     DEFAULT_BACKEND_PORT,
@@ -530,6 +532,8 @@ app.use('/api/auto-research', authenticateToken, autoResearchRoutes);
 
 // References (literature library) API Routes (protected)
 app.use('/api/references', authenticateToken, referencesRoutes);
+
+app.use('/api/quick-qa', authenticateToken, quickQaRoutes);
 
 // Agent API Routes (uses API key authentication)
 app.use('/api/agent', agentRoutes);
@@ -2028,18 +2032,18 @@ function handleShellConnection(ws) {
                             }
                         }
                     } else if (provider === 'codex') {
-                        // Use codex command
+                        const codexCommand = codexCommandForShell(process.env, os.platform());
                         if (os.platform() === 'win32') {
                             if (hasSession && sessionId) {
-                                shellCommand = `Set-Location -Path "${projectPath}"; codex resume ${sessionId}; if ($LASTEXITCODE -ne 0) { codex }`;
+                                shellCommand = `Set-Location -Path "${projectPath}"; ${codexCommand} resume ${sessionId}; if ($LASTEXITCODE -ne 0) { ${codexCommand} }`;
                             } else {
-                                shellCommand = `Set-Location -Path "${projectPath}"; codex`;
+                                shellCommand = `Set-Location -Path "${projectPath}"; ${codexCommand}`;
                             }
                         } else {
                             if (hasSession && sessionId) {
-                                shellCommand = `cd "${projectPath}" && codex resume ${sessionId} || codex`;
+                                shellCommand = `cd "${projectPath}" && ${codexCommand} resume ${sessionId} || ${codexCommand}`;
                             } else {
-                                shellCommand = `cd "${projectPath}" && codex`;
+                                shellCommand = `cd "${projectPath}" && ${codexCommand}`;
                             }
                         }
                     } else if (provider === 'gemini') {
@@ -2109,7 +2113,9 @@ function handleShellConnection(ws) {
                         cols: termCols,
                         rows: termRows,
                         cwd: spawnCwd,
-                        env: buildEmbeddedShellEnv(process.env)
+                        env: provider === 'codex'
+                            ? buildEmbeddedShellEnv(buildCodexCliEnv(process.env))
+                            : buildEmbeddedShellEnv(process.env)
                     });
 
                     console.log('🟢 Shell process started with PTY, PID:', shellProcess.pid);
@@ -2885,6 +2891,7 @@ app.get('/api/projects/:projectName/sessions/:sessionId/token-usage', authentica
 
     // Determine context window from model name
     const MODEL_CONTEXT_WINDOWS = {
+      'claude-opus-4-7':     200000,
       'claude-opus-4-6':     200000,
       'claude-opus-4-20250918': 200000,
       'claude-sonnet-4-6':   200000,

@@ -27,6 +27,7 @@ import { buildTempAttachmentFilename } from './utils/imageAttachmentFiles.js';
 import { createRequestId, waitForToolApproval, resolveToolApproval as resolvePermApproval, matchesToolPermission } from './utils/permissions.js';
 import { buildMemoryBlock } from './utils/memoryPrompt.js';
 import { BTW_SYSTEM_PROMPT, buildBtwUserMessage } from './utils/btw.js';
+import { COMPUTE_GUARD_BLOCK } from './utils/computeGuardPrompt.js';
 
 const activeSessions = new Map();
 const pendingClaudeSessionIndexReconciles = new Map();
@@ -145,12 +146,13 @@ function mapCliOptionsToSDK(options = {}) {
   sdkOptions.model = options.model || CLAUDE_MODELS.DEFAULT;
   console.log(`Using model: ${sdkOptions.model}`);
 
-  // Map system prompt configuration with optional user memory injection
+  // Map system prompt configuration with optional user memory + compute guard injection
   const memoryBlock = options.userId ? buildMemoryBlock(options.userId) : '';
+  const appendBlock = [memoryBlock, COMPUTE_GUARD_BLOCK].filter(Boolean).join('\n\n').trim();
   sdkOptions.systemPrompt = {
     type: 'preset',
     preset: 'claude_code',  // Required to use CLAUDE.md
-    ...(memoryBlock ? { append: memoryBlock } : {}),
+    ...(appendBlock ? { append: appendBlock } : {}),
   };
 
   // Map setting sources for CLAUDE.md loading
@@ -239,6 +241,7 @@ function getContextWindowForModel(modelName) {
     'opusplan':            200000,
     'sonnet[1m]':          1000000,
     // API format names
+    'claude-opus-4-7':             200000,
     'claude-opus-4-6':             200000,
     'claude-opus-4-20250918':      200000,
     'claude-sonnet-4-6':           200000,

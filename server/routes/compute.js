@@ -546,6 +546,36 @@ router.get('/local/monitor', async (_req, res) => {
   }
 });
 
+// GET /api/compute/check-available - Quick compute availability check for aris-compute-guard
+router.get('/check-available', async (req, res) => {
+  try {
+    const { checkComputeAvailability } = await import('../utils/computeCheck.js');
+    const environment = req.query.environment || 'auto';
+    const result = await checkComputeAvailability(environment);
+
+    res.json({
+      success: true,
+      available: result.available,
+      environment,
+      reason: result.reason,
+      gpus: result.gpus || [],
+      freeGpuCount: result.freeCount || 0,
+      suggestions: result.suggestions || [],
+      ...(result.remoteNode ? { remoteNode: result.remoteNode } : {}),
+      timestamp: Date.now(),
+    });
+  } catch (error) {
+    console.error('Error checking compute availability:', error);
+    res.json({
+      success: false,
+      available: false,
+      reason: 'Compute check failed — see server logs for details',
+      suggestions: ['Check system configuration and try again'],
+      timestamp: Date.now(),
+    });
+  }
+});
+
 router.get('/status', async (req, res) => {
   try {
     const node = await getActiveNode();
